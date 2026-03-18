@@ -1,0 +1,44 @@
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AppProvider, useApp } from './context/AppContext';
+import Login from './pages/Login';
+import Sidebar from './components/Sidebar';
+import FacultyDashboard from './pages/FacultyDashboard';
+import HODDashboard from './pages/HODDashboard';
+import AdminDashboard from './pages/AdminDashboard';
+import History from './pages/History';
+
+const Protected = ({ children, role }) => {
+  const { user, loading } = useApp();
+  if (loading) return <div>Auth Verifying...</div>;
+  if (!user) return <Navigate to="/login" />;
+  if (role && user.role !== role) return <Navigate to="/" />;
+  return <div className="app-container"><Sidebar /><main className="main-content">{children}</main></div>;
+};
+
+const Home = () => {
+    const { user } = useApp();
+    if (!user) return <Navigate to="/login" />;
+    if (user.role === 'admin') return <Navigate to="/admin" />;
+    if (user.role === 'hod') return <Navigate to="/hod" />;
+    return <Navigate to="/faculty" />;
+};
+
+function App() {
+  return (
+    <Router>
+      <AppProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/faculty" element={<Protected role="faculty"><FacultyDashboard /></Protected>} />
+          <Route path="/hod" element={<Protected role="hod"><HODDashboard /></Protected>} />
+          <Route path="/admin" element={<Protected role="admin"><AdminDashboard /></Protected>} />
+          <Route path="/history" element={<Protected><History /></Protected>} />
+          <Route path="/" element={<Home />} />
+        </Routes>
+      </AppProvider>
+    </Router>
+  );
+}
+
+export default App;

@@ -1,0 +1,91 @@
+import React, { useState } from 'react';
+import { useApp } from '../context/AppContext';
+import { Shield, Lock, Mail, Loader2, Compass, Eye, EyeOff } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+const Login = () => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const { login } = useApp();
+  const navigate = useNavigate();
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+    setIsLoggingIn(true);
+    try {
+      await login(email, password);
+      navigate('/');
+    } catch (err) {
+      setError(err.message.includes("ACCESS_REVOKED") ? err.message : 'Invalid credentials. Use hod@demo.com for a quick tour.');
+      console.error(err);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  return (
+    <div style={{ 
+      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'radial-gradient(circle at top right, #1e293b, #000000)' 
+    }}>
+      <div className="glass-panel" style={{ padding: '3.5rem', width: '90%', maxWidth: '480px', background: 'rgba(255,255,255,0.03)', border: '2px solid rgba(255,255,255,0.1)', boxShadow: '12px 12px 0px rgba(0,0,0,0.4)' }}>
+        <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
+          <div style={{ width: '80px', height: '80px', background: 'var(--primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2rem', boxShadow: '0 0 40px var(--primary-glow)', border: '4px solid #000' }}>
+            <Compass color="white" size={40} />
+          </div>
+          <h1 style={{ fontSize: '2.5rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '-1px' }}>Institution Portal</h1>
+          <p style={{ color: 'var(--text-muted)', marginTop: '0.75rem', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.8rem' }}>Mediclaim Data Acquisition System</p>
+        </div>
+
+        {error && (
+          <div style={{ 
+            background: 'rgba(239, 68, 68, 0.1)', border: '2px solid #ef4444', 
+            color: '#ef4444', padding: '1rem', marginBottom: '2rem', 
+            fontSize: '0.9rem', textAlign: 'center', fontWeight: 800
+          }}>
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ position: 'relative' }}>
+            <Mail size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input 
+              type="email" placeholder="SECURE EMAIL" required 
+              style={{ padding: '1rem 1rem 1rem 3.5rem', width: '100%', fontWeight: 700 }}
+              value={email} onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div style={{ position: 'relative' }}>
+            <Lock size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input 
+              type={showPassword ? "text" : "password"} placeholder="PASSWORD" required 
+              style={{ padding: '1rem 4.5rem 1rem 3.5rem', width: '100%', fontWeight: 700 }}
+              value={password} onChange={(e) => setPassword(e.target.value)}
+            />
+            <button 
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              style={{ position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}
+            >
+              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
+          </div>
+          <button type="submit" className="btn btn-primary" style={{ justifyContent: 'center', marginTop: '1.5rem', fontSize: '1.1rem', padding: '1.25rem' }} disabled={isLoggingIn}>
+            {isLoggingIn ? <Loader2 className="animate-spin" size={24} /> : 'LOGIN'}
+          </button>
+        </form>
+
+        <div style={{ marginTop: '3rem', textAlign: 'center', borderTop: '2px dashed var(--border-glass)', paddingTop: '2rem' }}>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 800 }}>AUTHORIZED PERSONNEL ONLY</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Login;
