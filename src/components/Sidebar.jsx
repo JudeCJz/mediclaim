@@ -55,8 +55,8 @@ const Sidebar = () => {
         <div style={{ padding: '2rem 1.5rem', borderBottom: '2px solid var(--border-glass)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.2rem' }}>
           <img src="/logo.png" style={{ width: '40px', height: '40px', objectFit: 'contain', filter: 'drop-shadow(0 0 10px var(--primary-glow))' }} alt="L" />
           <div style={{ textAlign: 'left' }}>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 900, letterSpacing: '-0.5px', margin: 0, lineHeight: 1 }}>MEDICLAIM_ID</h2>
-            <p style={{ color: 'var(--primary)', fontSize: '0.65rem', fontWeight: 900, marginTop: '4px', textTransform: 'uppercase', letterSpacing: '1px' }}>INSTITUTIONAL_CMD</p>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 900, letterSpacing: '1px', margin: 0, lineHeight: 1 }}>MEDICLAIM</h2>
+            <p style={{ color: 'var(--primary)', fontSize: '0.65rem', fontWeight: 900, marginTop: '4px', textTransform: 'uppercase', letterSpacing: '1px' }}>INSTITUTIONAL_PORTAL</p>
           </div>
         </div>
 
