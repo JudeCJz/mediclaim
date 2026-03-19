@@ -23,7 +23,7 @@ const AdminDashboard = () => {
     const [isMailing, setIsMailing] = useState(false);
     const [isSavingFY, setIsSavingFY] = useState(false);
     const [alertConfig, setAlertConfig] = useState(null);
-    const [facultySearch, setFacultySearch] = useState("");
+    const [showDisabled, setShowDisabled] = useState(false);
     const [dojFilter, setDojFilter] = useState("");
     const [selectedUserToReset, setSelectedUserToReset] = useState(null);
     const [manualPass, setManualPass] = useState({ next: '', confirm: '' });
@@ -320,10 +320,21 @@ const AdminDashboard = () => {
                 <div className="glass-panel" style={{ padding: '3rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
                         <h2 style={{ fontWeight: 900 }}>Add Faculty Members</h2>
-                        <label className="btn btn-ghost" style={{ cursor: 'pointer' }}>
-                            <Upload size={18} /> Upload CSV
-                            <input type="file" accept=".csv" style={{ display: 'none' }} onChange={handleFileUpload} />
-                        </label>
+                            <div style={{ display: 'flex', gap: '1rem' }}>
+                                <input 
+                                    type="file" 
+                                    id="csvUpload" 
+                                    accept=".csv,.txt" 
+                                    style={{ display: 'none' }} 
+                                    onChange={handleCSVUpload}
+                                />
+                                <button className="btn btn-ghost" onClick={() => document.getElementById('csvUpload').click()}>
+                                    <FileText size={18} /> IMPORT_CSV
+                                </button>
+                                <button className="btn btn-primary" onClick={() => setShowBulkModal(true)}>
+                                    <Plus size={18} /> ADD_FACULTY
+                                </button>
+                            </div>
                     </div>
                     <textarea 
                         className="glass-panel" 
@@ -346,9 +357,15 @@ const AdminDashboard = () => {
                                 <h2 style={{ fontWeight: 900 }}>Registered Personnel Archive</h2>
                                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 900, marginTop: '0.5rem' }}>[ SORTED_BY: NEWEST_FIRST ]</div>
                             </div>
-                            <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
-                                <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                                <input className="glass-panel" style={{ width: '100%', padding: '0.8rem 1rem 0.8rem 3.5rem', fontSize: '0.8rem' }} placeholder="Search Name, Email, DOJ, Phone..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                                <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
+                                    <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                                    <input className="glass-panel" style={{ width: '100%', padding: '0.8rem 1rem 0.8rem 3.5rem', fontSize: '0.8rem' }} placeholder="Search Name, Email, DOJ, Phone..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                                </div>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                    <input type="checkbox" checked={showDisabled} onChange={e => setShowDisabled(e.target.checked)} />
+                                    SHOW_DISABLED
+                                </label>
                             </div>
                         </div>
                         <div className="table-responsive">
@@ -357,13 +374,16 @@ const AdminDashboard = () => {
                                     <tr><th>Faculty Member</th><th>Department</th><th>Phone / DOJ</th><th>Access Status</th><th>Manage</th></tr>
                                 </thead>
                                 <tbody>
-                                    {faculty.filter(f => 
-                                        f.name?.toLowerCase().includes(facultySearch.toLowerCase()) || 
-                                        f.email?.toLowerCase().includes(facultySearch.toLowerCase()) ||
-                                        f.phone?.toLowerCase().includes(facultySearch.toLowerCase()) ||
-                                        f.doj?.toLowerCase().includes(facultySearch.toLowerCase()) ||
-                                        f.department?.toLowerCase().includes(facultySearch.toLowerCase())
-                                    ).map(f => (
+                                    {faculty.filter(f => {
+                                        const q = facultySearch.toLowerCase();
+                                        const matchesSearch = f.name?.toLowerCase().includes(q) || 
+                                            f.email?.toLowerCase().includes(q) ||
+                                            f.phone?.toLowerCase().includes(q) ||
+                                            f.doj?.toLowerCase().includes(q) ||
+                                            f.department?.toLowerCase().includes(q);
+                                        const matchesStatus = showDisabled || f.status !== 'disabled';
+                                        return matchesSearch && matchesStatus;
+                                    }).map(f => (
                                         <tr key={f.id}>
                                             <td style={{ fontWeight: 800 }}>{f.name}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{f.email}</div></td>
                                             <td style={{ fontWeight: 700 }}>{f.department || 'Central Admin'}</td>
@@ -371,7 +391,13 @@ const AdminDashboard = () => {
                                                 <div>{f.phone || 'NO_PHONE'}</div>
                                                 <div style={{ opacity: 0.6 }}>{f.doj ? `JOINED: ${f.doj}` : 'DOJ_NOT_SET'}</div>
                                             </td>
-                                            <td><div style={{ color: '#22c55e', fontSize: '0.7rem', fontWeight: 900 }}>ACTIVE / ACCESS</div></td>
+                                            <td>
+                                                {f.status === 'disabled' ? (
+                                                    <div style={{ color: '#ef4444', fontSize: '0.7rem', fontWeight: 900 }}>DISABLED</div>
+                                                ) : (
+                                                    <div style={{ color: '#22c55e', fontSize: '0.7rem', fontWeight: 900 }}>ACTIVE / ACCESS</div>
+                                                )}
+                                            </td>
                                              <td>
                                                  <button className="btn btn-ghost" style={{ color: '#ef4444' }} onClick={() => {
                                                      setAlertConfig({
@@ -394,7 +420,16 @@ const AdminDashboard = () => {
                                  </tbody>
                              </table>
                          </div>
-                         {faculty.length === 0 && <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>No accounts registered yet.</div>}
+                         {faculty.filter(f => {
+                            const q = facultySearch.toLowerCase();
+                            const matchesSearch = f.name?.toLowerCase().includes(q) || 
+                                f.email?.toLowerCase().includes(q) ||
+                                f.phone?.toLowerCase().includes(q) ||
+                                f.doj?.toLowerCase().includes(q) ||
+                                f.department?.toLowerCase().includes(q);
+                            const matchesStatus = showDisabled || f.status !== 'disabled';
+                            return matchesSearch && matchesStatus;
+                         }).length === 0 && <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>No accounts registered yet.</div>}
                      </div>
                  </div>
              )}
@@ -405,15 +440,26 @@ const AdminDashboard = () => {
                         <h2 style={{ fontWeight: 900 }}>Password Reset Hub</h2>
                         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Send password reset links to any faculty member</p>
                     </div>
-                    <div style={{ position: 'relative', marginBottom: '2rem' }}>
-                        <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                        <input className="glass-panel" style={{ width: '100%', padding: '0.8rem 1rem 0.8rem 3.5rem', fontSize: '0.8rem' }} placeholder="Search faculty email..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                    <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '280px', maxWidth: '600px', alignItems: 'center' }}>
+                        <div style={{ position: 'relative', flex: 1 }}>
+                            <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                            <input className="glass-panel" style={{ width: '100%', padding: '0.8rem 1rem 0.8rem 3.5rem', fontSize: '0.8rem' }} placeholder="Search faculty email..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            <input type="checkbox" checked={showDisabled} onChange={e => setShowDisabled(e.target.checked)} />
+                            SHOW_DISABLED
+                        </label>
                     </div>
                     <div className="table-responsive">
                         <table className="data-table">
                             <thead><tr><th>Name</th><th>Email</th><th>Actions</th></tr></thead>
                             <tbody>
-                                {faculty.filter(f => f.email?.toLowerCase().includes(facultySearch.toLowerCase())).map(f => (
+                                {faculty.filter(f => {
+                                    const q = facultySearch.toLowerCase();
+                                    const matchesSearch = f.name?.toLowerCase().includes(q) || f.email?.toLowerCase().includes(q) || f.doj?.includes(q) || f.phone?.includes(q);
+                                    const matchesStatus = showDisabled || f.status !== 'disabled';
+                                    return matchesSearch && matchesStatus;
+                                }).map(f => (
                                     <tr key={f.id}>
                                         <td style={{ fontWeight: 900 }}>{f.name}</td>
                                         <td>{f.email}</td>

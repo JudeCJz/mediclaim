@@ -31,6 +31,7 @@ const HODDashboard = () => {
     const [selectedUserToReset, setSelectedUserToReset] = useState(null);
     const [manualPass, setManualPass] = useState({ next: '', confirm: '' });
     const [showManualPass, setShowManualPass] = useState(false);
+    const [showDisabled, setShowDisabled] = useState(false);
 
     const [editingFYId, setEditingFYId] = useState(null);
     const [alertConfig, setAlertConfig] = useState(null); // { title: '', type: 'info', onConfirm: null }
@@ -244,7 +245,7 @@ const HODDashboard = () => {
             {activeTab === 'registry' && (
                 <div className="glass-panel" style={{ padding: '2rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2.5rem', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-                        <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '300px', maxWidth: '700px' }}>
+                        <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '350px', maxWidth: '800px', alignItems: 'center' }}>
                             <div style={{ position: 'relative', flex: 1 }}>
                                 <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', zIndex: 5 }} />
                                 <input className="glass-panel" style={{ width: '100%', padding: '0.8rem 1rem 0.8rem 3.5rem', fontWeight: 700, fontSize: '0.85rem' }} placeholder="Filter registry records..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
@@ -253,13 +254,27 @@ const HODDashboard = () => {
                                 <label style={{ fontSize: '0.55rem', fontWeight: 900, color: 'var(--primary)', letterSpacing: '1px' }}>FILTER_DOJ</label>
                                 <input type="date" className="glass-panel" style={{ padding: '0.6rem 1rem', height: '100%', color: 'white', fontSize: '0.8rem' }} value={dojFilter} onChange={e => setDojFilter(e.target.value)} />
                             </div>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                <input type="checkbox" checked={showDisabled} onChange={e => setShowDisabled(e.target.checked)} />
+                                SHOW_DISABLED
+                            </label>
                             {dojFilter && <button className="btn btn-ghost" style={{ alignSelf: 'flex-end', padding: '0.8rem' }} onClick={() => setDojFilter("")}>CLEAR</button>}
                         </div>
                         <button className="btn btn-primary" onClick={exportExcel} style={{ padding: '0.8rem 2rem' }}><Download size={18} /> Export Master Excel</button>
                     </div>
+
                     <div className="table-responsive">
                         <table className="data-table">
-                            <thead><tr><th>Faculty Member</th><th>Status</th><th>Coverage</th><th>Premium</th><th>Actions</th></tr></thead>
+                            <thead>
+                                <tr>
+                                    <th>Faculty Member</th>
+                                    <th>Status</th>
+                                    <th>Emp ID</th>
+                                    <th>Coverage ID</th>
+                                    <th>Premium</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
                             <tbody>
                                 {submissions.filter(s => {
                                     const q = searchTerm.toLowerCase();
@@ -272,7 +287,10 @@ const HODDashboard = () => {
                                         s.doj?.toLowerCase().includes(q);
                                     
                                     const matchesDate = !dojFilter || s.doj === dojFilter;
-                                    return matchesSearch && matchesDate;
+                                    const userStatus = faculty.find(f => f.email === s.email)?.status;
+                                    const matchesStatus = showDisabled || userStatus !== 'disabled';
+
+                                    return matchesSearch && matchesDate && matchesStatus;
                                 }).map(s => (
                                     <tr key={s.id}>
                                         <td style={{ fontWeight: 900 }}>
@@ -280,7 +298,14 @@ const HODDashboard = () => {
                                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{s.email}</div>
                                             <div style={{ fontSize: '0.6rem', color: 'var(--primary)', fontWeight: 900, marginTop: '2px' }}>{s.gender || 'N/A'} | DOJ: {s.doj || 'N/A'}</div>
                                         </td>
-                                        <td><div style={{ fontSize: '0.6rem', fontWeight: 900, color: '#22c55e' }}>Validated</div></td>
+                                        <td>
+                                            {faculty.find(f => f.email === s.email)?.status === 'disabled' ? (
+                                                <div style={{ fontSize: '0.6rem', fontWeight: 900, color: '#ef4444' }}>DISABLED</div>
+                                            ) : (
+                                                <div style={{ fontSize: '0.6rem', fontWeight: 900, color: '#22c55e' }}>ACTIVE</div>
+                                            )}
+                                        </td>
+                                        <td style={{ fontWeight: 800 }}>{s.empId || 'N/A'}</td>
                                         <td style={{ fontWeight: 800 }}>{s.coverageId}</td>
                                         <td style={{ fontWeight: 900, color: 'var(--primary)' }}>₹{s.premium?.toLocaleString()}</td>
                                         <td><button className="btn btn-ghost" style={{ color: '#ef4444' }} onClick={() => { 
@@ -451,15 +476,26 @@ const HODDashboard = () => {
                         <h2 style={{ fontWeight: 900 }}>Password Reset Hub</h2>
                         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Send password reset links to any faculty member</p>
                     </div>
-                    <div style={{ position: 'relative', marginBottom: '2rem' }}>
-                        <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                        <input className="glass-panel" style={{ width: '100%', padding: '0.8rem 1rem 0.8rem 3.5rem', fontSize: '0.8rem' }} placeholder="Search faculty email..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                    <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '350px', maxWidth: '700px', alignItems: 'center' }}>
+                        <div style={{ position: 'relative', flex: 1 }}>
+                            <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                            <input className="glass-panel" style={{ width: '100%', padding: '0.8rem 1rem 0.8rem 3.5rem', fontSize: '0.8rem' }} placeholder="Search faculty email..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            <input type="checkbox" checked={showDisabled} onChange={e => setShowDisabled(e.target.checked)} />
+                            SHOW_DISABLED
+                        </label>
                     </div>
                     <div className="table-responsive">
                         <table className="data-table">
                             <thead><tr><th>Name</th><th>Email</th><th>Actions</th></tr></thead>
                             <tbody>
-                                {faculty.filter(f => f.email?.toLowerCase().includes(facultySearch.toLowerCase())).map(f => (
+                                {faculty.filter(f => {
+                                    const q = facultySearch.toLowerCase();
+                                    const matchesSearch = f.email?.toLowerCase().includes(q) || f.name?.toLowerCase().includes(q);
+                                    const matchesStatus = showDisabled || f.status !== 'disabled';
+                                    return matchesSearch && matchesStatus;
+                                }).map(f => (
                                     <tr key={f.id}>
                                         <td style={{ fontWeight: 900 }}>{f.name}</td>
                                         <td>{f.email}</td>

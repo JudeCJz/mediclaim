@@ -100,7 +100,7 @@ const Sidebar = () => {
              <History size={20} /> <span>History</span>
           </NavLink>
 
-          {isAdminOrHOD ? (
+          {isAdminOrHOD && (
             <button 
               onClick={() => handleTabClick('security')} 
               className={`btn ${(!isHistoryActive && activeTab === 'security') ? 'btn-primary' : 'btn-ghost'}`} 
@@ -108,10 +108,6 @@ const Sidebar = () => {
             >
               <Lock size={20} /> <span>Security Hub</span>
             </button>
-          ) : (
-            <NavLink to="/settings" onClick={() => setIsOpen(false)} className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-ghost'}`} style={navItemStyle}>
-               <Lock size={20} /> <span>Security Hub</span>
-            </NavLink>
           )}
         </nav>
 
@@ -122,7 +118,7 @@ const Sidebar = () => {
           </button>
 
           <button className="btn btn-ghost" style={{ ...navItemStyle, borderTop: '1px solid var(--border-glass)' }} onClick={() => { setIsOpen(false); navigate('/settings'); }}>
-            <User size={20} /> <span>My Account Settings</span>
+            <SettingsIcon size={20} /> <span>SETTINGS</span>
           </button>
           
           <button className="btn btn-ghost" style={{ ...navItemStyle, color: '#ef4444' }} onClick={logout}>
