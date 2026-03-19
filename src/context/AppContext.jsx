@@ -31,10 +31,10 @@ const DEMO_FY = {
 export const AppProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
   const [activeFY, setActiveFY] = useState(DEMO_FY); // Start with Demo FY
   const [activeTab, setActiveTab] = useState('overview');
-  const [isDemoMode, setIsDemoMode] = useState(true);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   // Theme Toggle: Circular Flood Reveal
   const toggleTheme = (e) => {
@@ -42,6 +42,7 @@ export const AppProvider = ({ children }) => {
     document.documentElement.style.setProperty('--reveal-x', `${x}px`);
     document.documentElement.style.setProperty('--reveal-y', `${y}px`);
     const newTheme = theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('theme', newTheme);
     if (!document.startViewTransition) { setTheme(newTheme); return; }
     document.startViewTransition(() => setTheme(newTheme));
   };
@@ -60,7 +61,13 @@ export const AppProvider = ({ children }) => {
         try {
           const userSnap = await getDoc(doc(db, "users", firebaseUser.uid));
           if (userSnap.exists()) {
-            setUser({ email: firebaseUser.email, uid: firebaseUser.uid, ...userSnap.data() });
+            const userData = userSnap.data();
+            if (userData.status === 'disabled') {
+                await signOut(auth);
+                setUser(null);
+            } else {
+                setUser({ email: firebaseUser.email, uid: firebaseUser.uid, ...userData });
+            }
           } else if (VIP_ACCOUNTS[firebaseUser.email]) {
             const vipInfo = VIP_ACCOUNTS[firebaseUser.email];
             setUser({ email: firebaseUser.email, uid: firebaseUser.uid, ...vipInfo });
@@ -96,30 +103,55 @@ export const AppProvider = ({ children }) => {
         setIsDemoMode(true);
         return Promise.resolve();
     }
-    const cred = await signInWithEmailAndPassword(auth, email, password);
-    const userSnap = await getDoc(doc(db, "users", cred.user.uid));
-    
-    if (userSnap.exists()) {
-        const userData = userSnap.data();
-        setUser({ email: cred.user.email, uid: cred.user.uid, ...userData });
-        return cred;
-    } else if (VIP_ACCOUNTS[cred.user.email]) {
-        // Auto-recreate VIP profiles if they were somehow moved
-        const vipInfo = VIP_ACCOUNTS[cred.user.email];
-        setUser({ email: cred.user.email, uid: cred.user.uid, ...vipInfo });
-        await setDoc(doc(db, "users", cred.user.uid), vipInfo, { merge: true });
-        return cred;
-    } else {
-        // SECURITY PROTOCOL: If Firestore data is missing, the account was purged by HOD/Admin.
-        await signOut(auth); // Sign them back out immediately
-        throw new Error("ACCESS_REVOKED: This account has been purged from the institution registry.");
+    try {
+        const cred = await signInWithEmailAndPassword(auth, email, password);
+        const userSnap = await getDoc(doc(db, "users", cred.user.uid));
+        
+        if (userSnap.exists()) {
+            const userData = userSnap.data();
+            if (userData.status === 'disabled') {
+                await signOut(auth);
+                throw new Error("ACCOUNT_LOCKED: Your account is disabled right now.");
+            }
+            setUser({ email: cred.user.email, uid: cred.user.uid, ...userData });
+            return cred;
+        } else if (VIP_ACCOUNTS[cred.user.email]) {
+            const vipInfo = VIP_ACCOUNTS[cred.user.email];
+            setUser({ email: cred.user.email, uid: cred.user.uid, ...vipInfo });
+            await setDoc(doc(db, "users", cred.user.uid), vipInfo, { merge: true });
+            return cred;
+        }
+    } catch (err) {
+        // AUTH FAILED: Initiate Institutional PIN Override Check
+        const q = query(collection(db, "users"), where("email", "==", email));
+        return onSnapshot(q, (snap) => {
+            if (!snap.empty) {
+                const docData = snap.docs[0].data();
+                const userId = snap.docs[0].id;
+                
+                // Check if admin has set a manual password overwrite
+                if (docData.passwordOverwrite === password) {
+                    if (docData.status === 'disabled') throw new Error("ACCOUNT_LOCKED: Access denied.");
+                    setUser({ email, uid: userId, ...docData });
+                    return Promise.resolve();
+                }
+            }
+            throw err; // Re-throw the original Auth error if no override found
+        });
     }
   };
 
   const logout = () => signOut(auth).then(() => setUser(null));
 
+  const updateProfile = async (updates) => {
+    if (!user) return;
+    const userRef = doc(db, "users", user.uid);
+    await setDoc(userRef, updates, { merge: true });
+    setUser(prev => ({ ...prev, ...updates }));
+  };
+
   return (
-    <AppContext.Provider value={{ user, loading, theme, toggleTheme, activeFY, login, logout, isDemoMode, DEMO_FACULTY, activeTab, setActiveTab }}>
+    <AppContext.Provider value={{ user, loading, theme, toggleTheme, activeFY, login, logout, updateProfile, isDemoMode, DEMO_FACULTY, activeTab, setActiveTab }}>
       {children}
     </AppContext.Provider>
   );

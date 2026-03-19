@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { LayoutDashboard, History, LogOut, Sun, Moon, Compass, ShieldAlert, Menu, X, Settings, FileText, Users } from 'lucide-react';
+import { LayoutDashboard, History, LogOut, Sun, Moon, Compass, ShieldAlert, Menu, X, Settings as SettingsIcon, FileText, Users, Lock, User } from 'lucide-react';
 
 const Sidebar = () => {
   const { user, logout, theme, toggleTheme, activeTab, setActiveTab } = useApp();
@@ -51,12 +51,14 @@ const Sidebar = () => {
 
       {/* SIDEBAR */}
       <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
-        <div style={{ padding: '3rem 1rem', textAlign: 'center', borderBottom: '2px solid var(--border-glass)', marginBottom: '1.5rem' }}>
-          <div style={{ background: 'var(--primary)', width: '50px', height: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem auto', boxShadow: '5px 5px 0px #000' }}>
-            <Compass color="white" size={30} />
+        <div style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', borderBottom: '2px solid var(--border-glass)', marginBottom: '1rem' }}>
+          <div style={{ background: 'var(--primary)', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '3px 3px 0px #000' }}>
+            <Compass color="white" size={20} />
           </div>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 900 }}>Mediclaim System</h2>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 700 }}>{user?.role?.toUpperCase()}</p>
+          <div style={{ textAlign: 'left' }}>
+            <h2 style={{ fontSize: '0.9rem', fontWeight: 900, letterSpacing: '0.5px', margin: 0, lineHeight: 1.1 }}>Mediclaim System</h2>
+            <p style={{ color: 'var(--primary)', fontSize: '0.6rem', fontWeight: 900, marginTop: '2px', textTransform: 'uppercase', letterSpacing: '1px' }}>{user?.role}</p>
+          </div>
         </div>
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -75,7 +77,7 @@ const Sidebar = () => {
                 className={`btn ${(!isHistoryActive && activeTab === 'years') ? 'btn-primary' : 'btn-ghost'}`} 
                 style={navItemStyle}
               >
-                <Settings size={20} /> <span>Financial Years</span>
+                <SettingsIcon size={20} /> <span>Financial Years</span>
               </button>
               <button 
                 onClick={() => handleTabClick('registry')} 
@@ -97,12 +99,30 @@ const Sidebar = () => {
           <NavLink to="/history" onClick={() => setIsOpen(false)} className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-ghost'}`} style={navItemStyle}>
              <History size={20} /> <span>History</span>
           </NavLink>
+
+          {isAdminOrHOD ? (
+            <button 
+              onClick={() => handleTabClick('security')} 
+              className={`btn ${(!isHistoryActive && activeTab === 'security') ? 'btn-primary' : 'btn-ghost'}`} 
+              style={navItemStyle}
+            >
+              <Lock size={20} /> <span>Security Hub</span>
+            </button>
+          ) : (
+            <NavLink to="/settings" onClick={() => setIsOpen(false)} className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-ghost'}`} style={navItemStyle}>
+               <Lock size={20} /> <span>Security Hub</span>
+            </NavLink>
+          )}
         </nav>
 
         <div style={{ marginTop: 'auto', paddingTop: '2rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <button className="btn btn-ghost" style={navItemStyle} onClick={toggleTheme}>
             {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
             <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+          </button>
+
+          <button className="btn btn-ghost" style={{ ...navItemStyle, borderTop: '1px solid var(--border-glass)' }} onClick={() => { setIsOpen(false); navigate('/settings'); }}>
+            <User size={20} /> <span>My Account Settings</span>
           </button>
           
           <button className="btn btn-ghost" style={{ ...navItemStyle, color: '#ef4444' }} onClick={logout}>

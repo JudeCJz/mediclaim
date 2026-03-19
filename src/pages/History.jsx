@@ -49,39 +49,39 @@ const History = () => {
                                 VALIDATED_SYSTEM_CONFIRMATION
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '2rem', alignItems: 'center' }}>
-                                <div style={{ borderRight: '2px dashed var(--border-glass)', paddingRight: '2rem' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '2.5rem', alignItems: 'center' }}>
+                                <div style={{ borderRight: '2px solid var(--border-glass)', paddingRight: '2rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
                                         <Calendar size={18} color="var(--primary)" />
-                                        <span style={{ fontSize: '0.75rem', fontWeight: 900, color: 'var(--text-muted)' }}>RECORD_PERIOD</span>
+                                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', letterSpacing: '1px' }}>CYCLE_ID</span>
                                     </div>
-                                    <div style={{ fontSize: '2rem', fontWeight: 900 }}>{item.fyName || '---'}</div>
+                                    <div style={{ fontSize: '2.5rem', fontWeight: 900 }}>{item.fyName || '---'}</div>
                                 </div>
 
                                 <div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
                                         <ShieldCheck size={20} color="#22c55e" />
-                                        <h3 style={{ fontSize: '1.25rem', fontWeight: 900 }}>{item.coverageId} Coverage</h3>
+                                        <h3 style={{ fontSize: '1.5rem', fontWeight: 900 }}>{item.coverageId} PLAN</h3>
                                     </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '1rem' }}>
-                                        <div className="glass-panel" style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)' }}>
-                                            <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)', marginBottom: '0.5rem' }}>PREMIUM</span>
-                                            <span style={{ fontWeight: 900, color: 'var(--primary)' }}>₹{item.premium?.toLocaleString()}</span>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                                        <div className="glass-panel" style={{ padding: '1.25rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)' }}>
+                                            <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)', marginBottom: '0.75rem' }}>PREMIUM_PAID</span>
+                                            <span style={{ fontWeight: 900, color: '#22c55e', fontSize: '1.1rem' }}>₹{item.premium?.toLocaleString()}</span>
                                         </div>
-                                        <div className="glass-panel" style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)' }}>
-                                            <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)', marginBottom: '0.5rem' }}>LIVES_COVERED</span>
-                                            <span style={{ fontWeight: 900 }}>{(item.dependents?.length || 0) + 1} Members</span>
+                                        <div className="glass-panel" style={{ padding: '1.25rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)' }}>
+                                            <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)', marginBottom: '0.75rem' }}>LIVES_COVERED</span>
+                                            <span style={{ fontWeight: 900, fontSize: '1.1rem' }}>{(item.dependents?.length || 0) + 1}</span>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div style={{ textAlign: 'right' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+                                <div style={{ textAlign: 'left', borderTop: '2px dashed var(--border-glass)', paddingTop: '1.5rem', marginTop: '1rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
                                         <Users size={16} color="var(--text-muted)" />
-                                        <span style={{ fontWeight: 800, fontSize: '0.85rem' }}>Dependents Registry:</span>
+                                        <span style={{ fontWeight: 900, fontSize: '0.7rem', color: 'var(--text-muted)' }}>MEMBER_REGISTRY:</span>
                                     </div>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, lineHeight: '1.6' }}>
-                                        {item.dependents?.map(d => d.name).join(', ') || 'Self Only'}
+                                    <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', fontWeight: 800, lineHeight: '1.8' }}>
+                                        {item.dependents?.map(d => d.name).join(' • ') || 'SELF_ONLY_ENROLLMENT'}
                                     </div>
                                 </div>
                             </div>

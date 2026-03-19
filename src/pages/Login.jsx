@@ -20,7 +20,11 @@ const Login = () => {
       await login(email, password);
       navigate('/');
     } catch (err) {
-      setError(err.message.includes("ACCESS_REVOKED") ? err.message : 'Invalid credentials. Use hod@demo.com for a quick tour.');
+      if (err.message.includes("ACCOUNT_LOCKED") || err.message.includes("ACCESS_REVOKED")) {
+        setError(err.message.split(": ")[1] || err.message);
+      } else {
+        setError('Invalid credentials. Please verify your institutional access.');
+      }
       console.error(err);
     } finally {
       setIsLoggingIn(false);
@@ -30,15 +34,16 @@ const Login = () => {
   return (
     <div style={{ 
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'radial-gradient(circle at top right, #1e293b, #000000)' 
+      background: 'var(--bg-main)',
+      transition: 'background 0.5s ease'
     }}>
       <div className="glass-panel" style={{ padding: '3.5rem', width: '90%', maxWidth: '480px', background: 'rgba(255,255,255,0.03)', border: '2px solid rgba(255,255,255,0.1)', boxShadow: '12px 12px 0px rgba(0,0,0,0.4)' }}>
         <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
           <div style={{ width: '80px', height: '80px', background: 'var(--primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2rem', boxShadow: '0 0 40px var(--primary-glow)', border: '4px solid #000' }}>
             <Compass color="white" size={40} />
           </div>
-          <h1 style={{ fontSize: '2.5rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '-1px' }}>Institution Portal</h1>
-          <p style={{ color: 'var(--text-muted)', marginTop: '0.75rem', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.8rem' }}>Mediclaim Data Acquisition System</p>
+          <h1 style={{ fontSize: '2.5rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '-1px' }}>Mediclaim Portal</h1>
+          <p style={{ color: 'var(--text-muted)', marginTop: '0.75rem', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.8rem' }}>Institutional Data Acquisition System</p>
         </div>
 
         {error && (

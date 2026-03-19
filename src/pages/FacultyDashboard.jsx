@@ -1,45 +1,85 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { db } from '../firebase';
-import { collection, addDoc, serverTimestamp, updateDoc, doc, query, where, getDocs } from 'firebase/firestore';
-import { Heart, UserPlus, Trash2, CheckCircle, ShieldCheck, Loader2, ArrowRight, ArrowLeft, Printer, Mail, User, Phone, Briefcase } from 'lucide-react';
+import { collection, addDoc, serverTimestamp, updateDoc, doc, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { Heart, UserPlus, Trash2, CheckCircle, ShieldCheck, Loader2, Save, Printer, User, Briefcase, X, AlertTriangle, ArrowLeft } from 'lucide-react';
 
 const FacultyDashboard = () => {
-    const { user, activeFY } = useApp();
-    const [step, setStep] = useState(1);
-    const [profile, setProfile] = useState({ empId: '', phone: '', department: '', designation: '' });
+    const { user } = useApp();
+    const [years, setYears] = useState([]);
+    const [selectedFY, setSelectedFY] = useState(null);
+    const [profile, setProfile] = useState({ empId: '', phone: '', department: '', designation: '', doj: '', gender: 'Male' });
     const [selectedPolicy, setSelectedPolicy] = useState(null);
     const [dependents, setDependents] = useState([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [success, setSuccess] = useState(false);
     const [existingSubmission, setExistingSubmission] = useState(null);
+    const [userSubmissions, setUserSubmissions] = useState({});
 
     useEffect(() => {
-        if (user && activeFY) checkExisting();
-    }, [user, activeFY]);
+        const unsub = onSnapshot(collection(db, "financialYears"), (snap) => {
+            setYears(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.name.localeCompare(a.name)));
+        });
+        return () => unsub();
+    }, []);
 
-    const checkExisting = async () => {
-        const q = query(collection(db, "submissions"), where("userId", "==", user.uid), where("fyId", "==", activeFY.id));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-            const data = snap.docs[0].data();
-            setExistingSubmission({ id: snap.docs[0].id, ...data });
-            setSelectedPolicy(data.policy);
-            setDependents(data.dependents || []);
-            setProfile({ empId: data.empId, phone: data.phone, department: data.department, designation: data.designation });
-            if (!activeFY.enabled) setStep(4); // View only
+    useEffect(() => {
+        if (user) {
+            const unsub = onSnapshot(query(collection(db, "submissions"), where("userId", "==", user.uid)), (snap) => {
+                const map = {};
+                snap.docs.forEach(d => map[d.data().fyId] = { id: d.id, ...d.data() });
+                setUserSubmissions(map);
+            });
+            return () => unsub();
+        }
+    }, [user]);
+
+    const enterYear = (fy) => {
+        setSelectedFY(fy);
+        setSuccess(false);
+        const sub = userSubmissions[fy.id];
+        if (sub) {
+            setExistingSubmission(sub);
+            setSelectedPolicy(sub.policy);
+            setDependents(sub.dependents || []);
+            setProfile({ 
+                empId: sub.empId || '', 
+                phone: sub.phone || user.phone || '', 
+                department: sub.department || user.department || '', 
+                designation: sub.designation || '',
+                doj: sub.doj || '',
+                gender: sub.gender || 'Male'
+            });
+        } else {
+            setExistingSubmission(null);
+            setSelectedPolicy(null);
+            setDependents([]);
+            setProfile({ 
+                empId: '', 
+                phone: user.phone || '', 
+                department: (user.department || '').toUpperCase(), 
+                designation: '',
+                doj: '',
+                gender: 'Male'
+            });
         }
     };
 
+    const isAfterDeadline = selectedFY?.deadline && new Date() > new Date(selectedFY.deadline);
+    const isLocked = !selectedFY?.enabled || isAfterDeadline;
+
     const addDep = (type) => {
+        if (isLocked) return;
         const counts = dependents.reduce((acc, d) => { acc[d.type] = (acc[d.type] || 0) + 1; return acc; }, {});
-        if (type === 'child' && (counts.child || 0) >= activeFY.maxChildren) return alert(`Max ${activeFY.maxChildren} children allowed.`);
-        if (type === 'parent' && (counts.parent || 0) >= activeFY.maxParents) return alert(`Max ${activeFY.maxParents} parents allowed.`);
+        if (type === 'child' && (counts.child || 0) >= selectedFY.maxChildren) return alert(`Max ${selectedFY.maxChildren} children allowed.`);
+        if (type === 'parent' && (counts.parent || 0) >= selectedFY.maxParents) return alert(`Max ${selectedFY.maxParents} parents allowed.`);
         setDependents([...dependents, { id: Date.now(), type, name: '', gender: 'Male', dob: '', relation: type }]);
     };
 
     const handleSubmit = async () => {
-        if (!selectedPolicy || !profile.empId) return alert("Complete all details.");
+        if (isLocked) return alert("Submission period has ended or is locked.");
+        if (!selectedPolicy || !profile.empId) return alert("Complete all profile and policy details.");
+        
         setIsSubmitting(true);
         const data = {
             userId: user.uid,
@@ -50,7 +90,7 @@ const FacultyDashboard = () => {
             coverageId: selectedPolicy.label,
             premium: selectedPolicy.premium,
             dependents,
-            fyId: activeFY.id,
+            fyId: selectedFY.id,
             timestamp: serverTimestamp()
         };
         try {
@@ -59,173 +99,210 @@ const FacultyDashboard = () => {
             } else {
                 await addDoc(collection(db, "submissions"), data);
             }
+            // Also update the core user profile for central archival
+            await updateDoc(doc(db, "users", user.uid), {
+                phone: profile.phone,
+                doj: profile.doj,
+                gender: profile.gender,
+                empId: profile.empId,
+                department: profile.department,
+                designation: profile.designation
+            });
             setSuccess(true);
+            setTimeout(() => setSelectedFY(null), 2500);
         } catch (err) { console.error(err); alert("Error saving data."); }
         finally { setIsSubmitting(false); }
     };
 
-    if (success) return (
-        <div className="glass-panel" style={{ padding: '4rem', textAlign: 'center', borderTop: '10px solid #22c55e' }}>
-            <CheckCircle size={80} color="#22c55e" style={{ marginBottom: '2rem' }} />
-            <h1 style={{ fontSize: '3rem', fontWeight: 900 }}>Enrolled</h1>
-            <div className="glass-panel" style={{ textAlign: 'left', margin: '2rem auto', maxWidth: '600px', padding: '2rem' }}>
-                <h3 style={{ borderBottom: '2px dashed var(--border-glass)', paddingBottom: '1rem', marginBottom: '1.5rem' }}>Summary</h3>
-                <p><strong>Member:</strong> {user.name} ({profile.empId})</p>
-                <p><strong>Policy:</strong> {selectedPolicy.label}</p>
-                <p><strong>Premium:</strong> ₹{selectedPolicy.premium.toLocaleString()}</p>
-                <p><strong>Dependents:</strong> {dependents.length} insured</p>
-            </div>
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-                <button className="btn btn-primary" onClick={() => window.print()}><Printer /> Print</button>
-                <button className="btn btn-ghost" onClick={() => window.location.reload()}>Finish</button>
+    if (!selectedFY) return (
+        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+            <header style={{ marginBottom: '4rem', borderLeft: '12px solid var(--primary)', paddingLeft: '2.5rem' }}>
+                <h1 style={{ fontSize: '3.5rem', fontWeight: 900, lineHeight: 1.1 }}>Enrollment Dashboard</h1>
+                <p style={{ color: 'var(--text-muted)', fontWeight: 700, marginTop: '0.5rem' }}>Select a financial cycle to start enrollment or view history</p>
+            </header>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '2.5rem' }}>
+                {years.length === 0 ? (
+                    <div className="glass-panel" style={{ gridColumn: '1 / -1', padding: '8rem', textAlign: 'center', opacity: 0.5, border: '2px dashed var(--border-glass)' }}>
+                        <AlertTriangle size={80} style={{ marginBottom: '2rem' }} />
+                        <h2 style={{ fontSize: '3rem', fontWeight: 900 }}>Nothing here</h2>
+                        <p style={{ fontWeight: 800 }}>Institutional enrollment cycles are currently offline or de-authorized.</p>
+                    </div>
+                ) : years.map(y => {
+                    const sub = userSubmissions[y.id];
+                    const expired = y.deadline && new Date() > new Date(y.deadline);
+                    const locked = !y.enabled || expired;
+                    
+                    return (
+                        <div key={y.id} className="glass-panel" onClick={() => enterYear(y)} style={{ 
+                            padding: '3rem', 
+                            cursor: 'pointer', 
+                            borderLeft: `12px solid ${locked ? '#94a3b8' : sub ? '#22c55e' : 'var(--primary)'}`,
+                            transition: 'transform 0.3s ease, background 0.3s ease'
+                        }} onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-10px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem', alignItems: 'flex-start' }}>
+                                <Briefcase size={40} color={locked ? '#94a3b8' : 'var(--primary)'} />
+                                <div style={{ 
+                                    padding: '0.5rem 1.2rem', 
+                                    border: '2px solid', 
+                                    fontSize: '0.7rem', 
+                                    fontWeight: 900, 
+                                    color: locked ? '#94a3b8' : sub ? '#22c55e' : 'var(--primary)',
+                                    background: 'rgba(255,255,255,0.03)'
+                                }}>
+                                    {locked ? 'ARCHIVE_VIEW' : sub ? 'ACTIVE_ENROLLED' : 'ACTION_REQUIRED'}
+                                </div>
+                            </div>
+                            <h2 style={{ fontSize: '2.2rem', fontWeight: 900, marginBottom: '0.5rem' }}>FY {y.name}</h2>
+                            <p style={{ fontSize: '0.85rem', opacity: 0.6, fontWeight: 700 }}>CYCLE DEADLINE: {y.deadline || 'PERMANENT_SESSION'}</p>
+                            
+                            <div style={{ marginTop: '3rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', color: locked ? '#94a3b8' : 'var(--primary)', fontWeight: 900, fontSize: '0.9rem' }}>
+                                    {locked ? <><ShieldCheck size={20} /> VIEW SUMMARY</> : sub ? <><Save size={20} /> EDIT DETAILS</> : <><UserPlus size={20} /> BEGIN ENROLLMENT</>}
+                                </div>
+                                {sub && <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#22c55e' }}>[ INSURED ]</div>}
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );
 
-    if (!activeFY) return <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center' }}>No active financial year found. Contact Admin.</div>;
-
     return (
-        <div>
-            <header style={{ marginBottom: '3rem', borderLeft: '10px solid var(--primary)', paddingLeft: '1.5rem' }}>
-                <h1 style={{ fontSize: '3rem', fontWeight: 900 }}>Medical Enrollment</h1>
-                <p style={{ color: 'var(--text-muted)' }}>Status: {activeFY.enabled ? 'Enrollment Open' : 'View Only (Locked)'} | Year: {activeFY.name}</p>
-            </header>
-
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '3rem' }}>
-                {[1, 2, 3, 4].map(i => (
-                    <div key={i} style={{ flex: 1, height: '10px', background: step >= i ? 'var(--primary)' : 'rgba(255,255,255,0.05)', border: '1px solid var(--border-glass)' }} />
-                ))}
+        <div style={{ maxWidth: '1200px', margin: '0 auto', paddingBottom: '5rem' }}>
+            <div className="flex-adaptive-header">
+                <button className="btn btn-ghost" onClick={() => setSelectedFY(null)} style={{ border: '2px solid var(--border-glass)', padding: '0.8rem 2rem' }}><ArrowLeft /> EXIT_TO_DASHBOARD</button>
+                <div className="header-info">
+                    <h1 style={{ fontSize: 'clamp(1.5rem, 5vw, 2rem)', fontWeight: 900 }}>FINANCIAL_CYCLE {selectedFY.name}</h1>
+                    <p style={{ color: isLocked ? '#ef4444' : '#22c55e', fontWeight: 900, fontSize: '0.75rem', letterSpacing: '1px' }}>{isLocked ? 'READ_ONLY_ACCESS_ONLY' : 'MODIFICATION_WINDOW_OPEN'}</p>
+                </div>
             </div>
 
-            {step === 1 && (
-                <div className="glass-panel" style={{ padding: '2.5rem' }}>
-                    <h2 style={{ marginBottom: '2.5rem', fontWeight: 900 }}>1. Personal Information</h2>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-                        <div>
-                            <label style={{ fontSize: '0.75rem', fontWeight: 900, display: 'block', marginBottom: '0.5rem' }}>EMPLOYEE ID</label>
-                            <input className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={profile.empId} onChange={e => setProfile({...profile, empId: e.target.value})} />
-                        </div>
-                        <div>
-                            <label style={{ fontSize: '0.75rem', fontWeight: 900, display: 'block', marginBottom: '0.5rem' }}>PHONE NUMBER</label>
-                            <input className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={profile.phone} onChange={e => setProfile({...profile, phone: e.target.value})} />
-                        </div>
-                        <div>
-                            <label style={{ fontSize: '0.75rem', fontWeight: 900, display: 'block', marginBottom: '0.5rem' }}>DEPARTMENT</label>
-                            <input className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={profile.department} onChange={e => setProfile({...profile, department: e.target.value})} />
-                        </div>
-                        <div>
-                            <label style={{ fontSize: '0.75rem', fontWeight: 900, display: 'block', marginBottom: '0.5rem' }}>DESIGNATION</label>
-                            <input className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={profile.designation} onChange={e => setProfile({...profile, designation: e.target.value})} />
-                        </div>
-                    </div>
-                    <div style={{ marginTop: '3rem', textAlign: 'right' }}>
-                        <button className="btn btn-primary" onClick={() => setStep(2)}>Next Step <ArrowRight /></button>
-                    </div>
+            {success ? (
+                <div className="glass-panel" style={{ padding: '8rem', textAlign: 'center', borderTop: '12px solid #22c55e' }}>
+                    <CheckCircle size={100} color="#22c55e" style={{ marginBottom: '2rem' }} className="animate-pulse" />
+                    <h2 style={{ fontSize: '3rem', fontWeight: 900 }}>Update Finalized!</h2>
+                    <p style={{ opacity: 0.7, fontWeight: 700, fontSize: '1.2rem' }}>Your records for FY {selectedFY.name} have been synchronized. Redirecting...</p>
                 </div>
-            )}
-
-            {step === 2 && (
-                <div className="glass-panel" style={{ padding: '2.5rem' }}>
-                    <h2 style={{ marginBottom: '2.5rem', fontWeight: 900 }}>2. Choose Coverage Option</h2>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
-                        {activeFY.policies.map(p => (
-                            <div key={p.id} className="glass-panel" 
-                                onClick={() => activeFY.enabled && setSelectedPolicy(p)}
-                                style={{ 
-                                    padding: '2.5rem', cursor: activeFY.enabled ? 'pointer' : 'default',
-                                    border: selectedPolicy?.id === p.id ? '4px solid var(--primary)' : '2px solid var(--border-glass)',
-                                    background: selectedPolicy?.id === p.id ? 'rgba(99,102,241,0.05)' : 'transparent'
-                                }}>
-                                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, marginBottom: '0.5rem' }}>{p.label}</h3>
-                                <div style={{ fontSize: '2.5rem', fontWeight: 900, color: 'var(--primary)' }}>₹{p.premium.toLocaleString()}</div>
-                                <div style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: '0.5rem' }}>PER FINANCIAL YEAR</div>
+            ) : (
+                <div style={{ display: 'grid', gap: '3rem' }}>
+                    {/* 1. Profile Section */}
+                    <section className="glass-panel" style={{ padding: '3rem' }}>
+                        <h2 style={{ marginBottom: '2rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px' }}><User size={24} color="var(--primary)" /> Personal & Professional Details</h2>
+                        <div className="responsive-auto-grid" style={{ gap: '1.2rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>EMPLOYEE ID</label>
+                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.9rem' }} value={profile.empId} onChange={e => setProfile({...profile, empId: e.target.value})} />
                             </div>
-                        ))}
-                    </div>
-                    <div style={{ marginTop: '3rem', display: 'flex', justifyContent: 'space-between' }}>
-                        <button className="btn btn-ghost" onClick={() => setStep(1)}><ArrowLeft /> Back</button>
-                        <button className="btn btn-primary" disabled={!selectedPolicy} onClick={() => setStep(3)}>Next Step <ArrowRight /></button>
-                    </div>
-                </div>
-            )}
-
-            {step === 3 && (
-                <div className="glass-panel" style={{ padding: '2.5rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2.5rem' }}>
-                        <h2 style={{ fontWeight: 900 }}>3. Family Members</h2>
-                        {activeFY.enabled && (
-                            <div style={{ display: 'flex', gap: '10px' }}>
-                                <button className="btn btn-ghost" onClick={() => addDep('spouse')}>+ Spouse</button>
-                                <button className="btn btn-ghost" onClick={() => addDep('child')}>+ Child</button>
-                                <button className="btn btn-ghost" onClick={() => addDep('parent')}>+ Parent</button>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>PHONE NUMBER</label>
+                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.9rem' }} value={profile.phone} onChange={e => setProfile({...profile, phone: e.target.value})} />
                             </div>
-                        )}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                        {dependents.map(d => (
-                            <div key={d.id} className="glass-panel" style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: '120px 1fr 150px 200px 50px', gap: '1rem', alignItems: 'center' }}>
-                                <span style={{ fontWeight: 900, color: 'var(--primary)' }}>{d.type.toUpperCase()}</span>
-                                <input className="glass-panel" style={{ padding: '0.8rem' }} placeholder="Full Name" value={d.name} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, name: e.target.value} : x))} />
-                                <select className="glass-panel" style={{ padding: '0.8rem', color: 'var(--text-main)', background: 'var(--bg-glass)' }} value={d.gender} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, gender: e.target.value} : x))}>
-                                    <option style={{ background: 'var(--bg-main)', color: 'var(--text-main)' }}>Male</option>
-                                    <option style={{ background: 'var(--bg-main)', color: 'var(--text-main)' }}>Female</option>
-                                    <option style={{ background: 'var(--bg-main)', color: 'var(--text-main)' }}>Other</option>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DEPARTMENT</label>
+                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.9rem', textTransform: 'uppercase', fontWeight: 900 }} value={profile.department} onChange={e => setProfile({...profile, department: e.target.value.toUpperCase()})} />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DESIGNATION</label>
+                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.9rem' }} value={profile.designation} onChange={e => setProfile({...profile, designation: e.target.value})} />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>GENDER</label>
+                                <select disabled={isLocked} className="glass-panel" style={{ width: '100%', padding: '0.9rem', background: 'var(--bg-glass)', color: 'var(--text-main)', border: '1px solid var(--border-glass)' }} value={profile.gender} onChange={e => setProfile({...profile, gender: e.target.value})}>
+                                    <option style={{ background: 'var(--bg-main)' }}>Male</option>
+                                    <option style={{ background: 'var(--bg-main)' }}>Female</option>
+                                    <option style={{ background: 'var(--bg-main)' }}>Other</option>
                                 </select>
-                                <input type="date" className="glass-panel" style={{ padding: '0.8rem', color: 'var(--text-main)' }} value={d.dob} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, dob: e.target.value} : x))} />
-                                {activeFY.enabled && (
-                                    <button className="btn btn-ghost" style={{ color: '#ef4444', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '40px', height: '40px' }} onClick={() => setDependents(dependents.filter(x=>x.id!==d.id))}>
-                                        <Trash2 size={20} />
-                                    </button>
-                                )}
                             </div>
-                        ))}
-                        {dependents.length === 0 && <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>No family members added.</div>}
-                    </div>
-                    <div style={{ marginTop: '4rem', display: 'flex', justifyContent: 'space-between' }}>
-                        <button className="btn btn-ghost" onClick={() => setStep(2)}><ArrowLeft /> Back</button>
-                        <button className="btn btn-primary" onClick={() => setStep(4)}>Final Review <ArrowRight /></button>
-                    </div>
-                </div>
-            )}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DATE OF JOINING</label>
+                                <input disabled={isLocked} type="date" className="glass-panel" style={{ width: '100%', padding: '0.9rem', color: 'var(--text-main)' }} value={profile.doj} onChange={e => setProfile({...profile, doj: e.target.value})} />
+                            </div>
+                        </div>
+                    </section>
 
-            {step === 4 && (
-                <div className="glass-panel" style={{ padding: '3rem' }}>
-                    <h2 style={{ marginBottom: '2.5rem', fontWeight: 900 }}>4. Summary & Confirmation</h2>
-                    <div className="glass-panel" style={{ padding: '2.5rem', background: 'rgba(255,255,255,0.02)', border: '2px solid var(--border-glass)' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3rem' }}>
-                            <div>
-                                <h4 style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>SUBSCRIBER</h4>
-                                <div style={{ fontSize: '1.25rem', fontWeight: 900 }}>{user.name}</div>
-                                <div style={{ color: 'var(--text-muted)' }}>ID: {profile.empId}</div>
-                                <div style={{ color: 'var(--text-muted)' }}>{profile.department} | {profile.designation}</div>
-                            </div>
-                            <div>
-                                <h4 style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>SELECTED PLAN</h4>
-                                <div style={{ fontSize: '1.25rem', fontWeight: 900, color: 'var(--primary)' }}>{selectedPolicy.label}</div>
-                                <div style={{ fontSize: '1.5rem', fontWeight: 900 }}>₹{selectedPolicy.premium.toLocaleString()}</div>
-                            </div>
-                        </div>
-                        <div style={{ marginTop: '2.5rem', borderTop: '2px dashed var(--border-glass)', paddingTop: '2rem' }}>
-                            <h4 style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>DEPENDENTS ({dependents.length})</h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
-                                {dependents.map((d, i) => (
-                                    <div key={i} style={{ padding: '1rem', border: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.1)' }}>
-                                        <div style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--primary)' }}>{d.type}</div>
-                                        <div style={{ fontWeight: 800 }}>{d.name}</div>
-                                        <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>{d.dob} ({d.gender})</div>
+                    {/* 2. Policy Section */}
+                    <section className="glass-panel" style={{ padding: '3rem' }}>
+                        <h2 style={{ marginBottom: '2.5rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px' }}><Heart size={26} color="var(--primary)" /> Policy Selection Tiers</h2>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
+                            {selectedFY.policies?.map(p => (
+                                <div key={p.id} className="glass-panel" onClick={() => !isLocked && setSelectedPolicy(p)}
+                                    style={{ padding: '2rem', cursor: isLocked ? 'default' : 'pointer', border: selectedPolicy?.id === p.id ? '3px solid #22c55e' : '1px solid var(--border-glass)', background: selectedPolicy?.id === p.id ? 'rgba(34,197,94,0.08)' : 'transparent' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                        <h3 style={{ fontSize: '1.2rem', fontWeight: 900 }}>{p.label}</h3>
+                                        {selectedPolicy?.id === p.id && <CheckCircle size={22} color="#22c55e" />}
                                     </div>
-                                ))}
-                            </div>
+                                    <div style={{ fontSize: '2.2rem', fontWeight: 900, color: '#22c55e' }}>₹{p.premium.toLocaleString()}</div>
+                                    <div style={{ fontSize: '0.65rem', opacity: 0.6, fontWeight: 900, letterSpacing: '1px' }}>ANNUAL_RECURRING_PREMIUM</div>
+                                </div>
+                            ))}
                         </div>
-                    </div>
-                    <div style={{ marginTop: '4rem', display: 'flex', justifyContent: 'space-between' }}>
-                        <button className="btn btn-ghost" onClick={() => setStep(3)}><ArrowLeft /> Modify</button>
-                        {activeFY.enabled ? (
-                            <button className="btn btn-primary" style={{ padding: '1rem 4rem' }} onClick={handleSubmit} disabled={isSubmitting}>
-                                {isSubmitting ? <div className="btn-loader"><ShieldCheck size={20} /></div> : existingSubmission ? 'UPDATE ENROLLMENT' : 'SUBMIT ENROLLMENT'}
+                    </section>
+
+                    {/* 3. Dependents Section */}
+                    <section className="glass-panel" style={{ padding: '3rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem', flexWrap: 'wrap', gap: '1rem' }}>
+                            <h2 style={{ fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus size={26} color="var(--primary)" /> Insured Beneficiaries</h2>
+                            {!isLocked && (
+                                <div style={{ display: 'flex', gap: '1rem' }}>
+                                    <button className="btn btn-ghost" style={{ fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} onClick={() => addDep('spouse')}>+ SPOUSE</button>
+                                    <button className="btn btn-ghost" style={{ fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} onClick={() => addDep('child')}>+ CHILD</button>
+                                    <button className="btn btn-ghost" style={{ fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} onClick={() => addDep('parent')}>+ PARENT</button>
+                                </div>
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                            {dependents.map(d => (
+                                <div key={d.id} className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontWeight: 900, color: 'var(--primary)', fontSize: '0.7rem', letterSpacing: '1.5px' }}>{d.type.toUpperCase()}_SLOT</span>
+                                        {!isLocked && (
+                                            <button className="btn btn-ghost" style={{ width: '45px', height: '45px', background: 'rgba(239, 68, 68, 0.1)', border: '2px solid #ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }} onClick={() => setDependents(dependents.filter(x=>x.id!==d.id))}>
+                                                <Trash2 size={24} color="#ef4444" strokeWidth={3} />
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                        <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>FULL NAME</label>
+                                        <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '1rem' }} placeholder="Ex: John Doe" value={d.name} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, name: e.target.value} : x))} />
+                                    </div>
+                                    <div className="responsive-auto-grid" style={{ gap: '1.5rem' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                            <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>GENDER</label>
+                                            <select disabled={isLocked} className="glass-panel" style={{ width: '100%', padding: '1rem', background: 'var(--bg-glass)', color: 'var(--text-main)', border: '1px solid var(--border-glass)' }} value={d.gender} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, gender: e.target.value} : x))}>
+                                                <option style={{ background: 'var(--bg-main)' }}>Male</option><option style={{ background: 'var(--bg-main)' }}>Female</option><option style={{ background: 'var(--bg-main)' }}>Other</option>
+                                            </select>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DATE OF BIRTH</label>
+                                                {d.dob && (
+                                                    <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--primary)', background: 'rgba(99, 102, 241, 0.1)', padding: '0.2rem 0.6rem', border: '1px solid var(--primary-glow)' }}>
+                                                        [ AGE: {Math.floor((new Date() - new Date(d.dob)) / (365.25 * 24 * 60 * 60 * 1000))} ]
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <input disabled={isLocked} type="date" className="glass-panel" style={{ width: '100%', padding: '1rem', color: 'var(--text-main)', border: '1px solid var(--border-glass)' }} value={d.dob} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, dob: e.target.value} : x))} />
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                            {dependents.length === 0 && <div style={{ textAlign: 'center', padding: '5rem', border: '3px dashed var(--border-glass)', borderRadius: '15px', opacity: 0.5, fontWeight: 900 }}>EMPTY_REGISTRY: NO_DEPENDENTS_ADDED</div>}
+                        </div>
+                    </section>
+
+                    <div style={{ marginTop: '3rem', display: 'flex', justifyContent: 'center' }}>
+                        {!isLocked ? (
+                            <button className="btn btn-primary" style={{ padding: '1.5rem 6rem', width: '100%', maxWidth: '600px', fontSize: '1.1rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px' }} onClick={handleSubmit} disabled={isSubmitting}>
+                                {isSubmitting ? <Loader2 className="animate-spin" /> : <><Save size={24} /> {existingSubmission ? 'UPDATE ENROLLMENT DATA' : 'FINALIZE SUBMISSION'}</>}
                             </button>
                         ) : (
-                            <div style={{ color: '#ef4444', fontWeight: 900 }}>ENROLLMENT LOCKED BY ADMIN</div>
+                            <div className="glass-panel" style={{ padding: '3rem', background: 'rgba(239, 68, 68, 0.05)', border: '2px solid rgba(239, 68, 68, 0.2)' }}>
+                                <AlertTriangle size={40} color="#ef4444" style={{ marginBottom: '1.5rem' }} />
+                                <h3 style={{ color: '#ef4444', fontWeight: 900, fontSize: '1.2rem', letterSpacing: '2px' }}>SESSION_LOCKED: READ_ONLY_FINALIZED</h3>
+                                <p style={{ opacity: 0.7, fontWeight: 700, marginTop: '0.5rem' }}>The submission window for this financial cycle is closed. You can only view your data.</p>
+                            </div>
                         )}
                     </div>
                 </div>
