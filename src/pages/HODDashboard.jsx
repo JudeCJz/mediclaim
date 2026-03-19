@@ -126,8 +126,7 @@ const HODDashboard = () => {
                         {[
                             { label: 'Total Faculty', val: stats.total, icon: <Users size={20} />, color: 'var(--primary)' },
                             { label: 'Active', val: stats.enrolled, icon: <CheckCircle size={20} />, color: '#22c55e' },
-                            { label: 'Pending', val: stats.pending, icon: <Clock size={20} />, color: '#ef4444' },
-                            { label: 'Total Premium', val: stats.revenue >= 100000 ? `₹${(stats.revenue / 100000).toFixed(2)}L` : `₹${stats.revenue.toLocaleString()}`, icon: <BarChart3 size={20} />, color: '#eab308' }
+                            { label: 'Pending', val: stats.pending, icon: <Clock size={20} />, color: '#ef4444' }
                         ].map((s, i) => (
                             <div key={i} className="glass-panel" style={{ padding: '1.2rem', borderTop: `4px solid ${s.color}`, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

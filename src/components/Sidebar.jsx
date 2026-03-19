@@ -125,6 +125,12 @@ const Sidebar = () => {
             <LogOut size={20} /> <span>Logout</span>
           </button>
           
+          <div style={{ padding: '2.5rem 2rem', borderBottom: '1px solid var(--border-glass)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <img src="/logo.png" style={{ width: '32px', height: '32px', objectFit: 'contain', filter: 'drop-shadow(0 0 8px var(--primary-glow))' }} alt="Logo" />
+            <span style={{ fontWeight: 900, fontSize: '1.2rem', letterSpacing: '-1px' }}>MEDICLAIM_ID</span>
+          </div>
+        </div>
           <div style={{ padding: '1.5rem', position: 'relative' }}>
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'var(--border-glass)' }} />
             <div style={{ fontWeight: 900, fontSize: '0.8rem' }}>{user?.name || 'User'}</div>

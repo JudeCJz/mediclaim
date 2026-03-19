@@ -8,7 +8,52 @@ import HODDashboard from './pages/HODDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import History from './pages/History';
 import Settings from './pages/Settings';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, X } from 'lucide-react';
+
+const InstallPrompt = () => {
+  const [deferredPrompt, setDeferredPrompt] = React.useState(null);
+  const [visible, setVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setVisible(true);
+    });
+  }, []);
+
+  const handleInstall = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') setVisible(false);
+    setDeferredPrompt(null);
+  };
+
+  if (!visible) return null;
+
+  return (
+    <div className="glass-panel" style={{ 
+      position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+      width: '90%', maxWidth: '450px', padding: '1.2rem 1.5rem', zIndex: 9999,
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      boxShadow: '0 20px 50px rgba(0,0,0,0.5)', border: '1px solid var(--border-glass)',
+      background: 'rgba(10,10,10,0.9)', backdropFilter: 'blur(20px)'
+    }}>
+      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+        <img src="/logo.png" style={{ width: '40px', height: '40px', objectFit: 'contain' }} alt="L" />
+        <div>
+          <div style={{ fontWeight: 900, fontSize: '0.9rem' }}>Install App</div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Add to home screen for better experience</div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <button className="btn btn-primary" onClick={handleInstall} style={{ padding: '0.6rem 1.2rem', fontSize: '0.75rem' }}>Install</button>
+        <button onClick={() => setVisible(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={18} /></button>
+      </div>
+    </div>
+  );
+};
 
 const Protected = ({ children, role }) => {
   const { user, loading } = useApp();
@@ -37,6 +82,7 @@ function App() {
   return (
     <Router>
       <AppProvider>
+        <InstallPrompt />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/faculty" element={<Protected role="faculty"><FacultyDashboard /></Protected>} />
