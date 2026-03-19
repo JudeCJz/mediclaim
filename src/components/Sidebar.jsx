@@ -33,7 +33,7 @@ const Sidebar = () => {
   };
 
   const isAdminOrHOD = user?.role === 'admin' || user?.role === 'hod';
-  const isDashboardBase = location.pathname === '/';
+  const isDashboardBase = location.pathname === '/' || location.pathname === '/admin' || location.pathname === '/hod';
 
   return (
     <>
