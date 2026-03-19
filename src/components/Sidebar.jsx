@@ -40,7 +40,7 @@ const Sidebar = () => {
       <button 
         className="btn btn-primary mobile-only" 
         style={{ 
-            position: 'fixed', top: '20px', right: '20px', 
+            position: 'fixed', bottom: '20px', right: '20px', 
             zIndex: 2000, padding: '0.8rem', 
             boxShadow: '6px 6px 0px #000', border: '3px solid #000'
         }} 
@@ -51,13 +51,11 @@ const Sidebar = () => {
 
       {/* SIDEBAR */}
       <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
-        <div style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', borderBottom: '2px solid var(--border-glass)', marginBottom: '1rem' }}>
-          <div style={{ background: 'var(--primary)', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '3px 3px 0px #000' }}>
-            <Compass color="white" size={20} />
-          </div>
+        <div style={{ padding: '2rem 1.5rem', borderBottom: '2px solid var(--border-glass)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.2rem' }}>
+          <img src="/logo.png" style={{ width: '40px', height: '40px', objectFit: 'contain', filter: 'drop-shadow(0 0 10px var(--primary-glow))' }} alt="L" />
           <div style={{ textAlign: 'left' }}>
-            <h2 style={{ fontSize: '0.9rem', fontWeight: 900, letterSpacing: '0.5px', margin: 0, lineHeight: 1.1 }}>Mediclaim System</h2>
-            <p style={{ color: 'var(--primary)', fontSize: '0.6rem', fontWeight: 900, marginTop: '2px', textTransform: 'uppercase', letterSpacing: '1px' }}>{user?.role}</p>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 900, letterSpacing: '-0.5px', margin: 0, lineHeight: 1 }}>MEDICLAIM_ID</h2>
+            <p style={{ color: 'var(--primary)', fontSize: '0.65rem', fontWeight: 900, marginTop: '4px', textTransform: 'uppercase', letterSpacing: '1px' }}>INSTITUTIONAL_CMD</p>
           </div>
         </div>
 
@@ -125,12 +123,7 @@ const Sidebar = () => {
             <LogOut size={20} /> <span>Logout</span>
           </button>
           
-          <div style={{ padding: '2.5rem 2rem', borderBottom: '1px solid var(--border-glass)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <img src="/logo.png" style={{ width: '32px', height: '32px', objectFit: 'contain', filter: 'drop-shadow(0 0 8px var(--primary-glow))' }} alt="Logo" />
-            <span style={{ fontWeight: 900, fontSize: '1.2rem', letterSpacing: '-1px' }}>MEDICLAIM_ID</span>
-          </div>
-        </div>
+
           <div style={{ padding: '1.5rem', position: 'relative' }}>
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'var(--border-glass)' }} />
             <div style={{ fontWeight: 900, fontSize: '0.8rem' }}>{user?.name || 'User'}</div>
