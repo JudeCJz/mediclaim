@@ -33,6 +33,7 @@ const Sidebar = () => {
   };
 
   const isAdminOrHOD = user?.role === 'admin' || user?.role === 'hod';
+  const isDashboardBase = location.pathname === '/';
 
   return (
     <>
@@ -62,7 +63,7 @@ const Sidebar = () => {
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <button 
             onClick={() => handleTabClick('overview')} 
-            className={`btn ${(!isHistoryActive && activeTab === 'overview') ? 'btn-primary' : 'btn-ghost'}`} 
+            className={`btn ${(isDashboardBase && activeTab === 'overview') ? 'btn-primary' : 'btn-ghost'}`} 
             style={navItemStyle}
           >
             <LayoutDashboard size={20} /> <span>Dashboard</span>
@@ -72,21 +73,21 @@ const Sidebar = () => {
             <>
               <button 
                 onClick={() => handleTabClick('years')} 
-                className={`btn ${(!isHistoryActive && activeTab === 'years') ? 'btn-primary' : 'btn-ghost'}`} 
+                className={`btn ${(isDashboardBase && activeTab === 'years') ? 'btn-primary' : 'btn-ghost'}`} 
                 style={navItemStyle}
               >
                 <SettingsIcon size={20} /> <span>Financial Years</span>
               </button>
               <button 
                 onClick={() => handleTabClick('registry')} 
-                className={`btn ${(!isHistoryActive && activeTab === 'registry') ? 'btn-primary' : 'btn-ghost'}`} 
+                className={`btn ${(isDashboardBase && activeTab === 'registry') ? 'btn-primary' : 'btn-ghost'}`} 
                 style={navItemStyle}
               >
                 <FileText size={20} /> <span>Registry</span>
               </button>
               <button 
                 onClick={() => handleTabClick('recruit')} 
-                className={`btn ${(!isHistoryActive && activeTab === 'recruit') ? 'btn-primary' : 'btn-ghost'}`} 
+                className={`btn ${(isDashboardBase && activeTab === 'recruit') ? 'btn-primary' : 'btn-ghost'}`} 
                 style={navItemStyle}
               >
                 <Users size={20} /> <span>Faculty Accounts</span>
@@ -101,7 +102,7 @@ const Sidebar = () => {
           {isAdminOrHOD && (
             <button 
               onClick={() => handleTabClick('security')} 
-              className={`btn ${(!isHistoryActive && activeTab === 'security') ? 'btn-primary' : 'btn-ghost'}`} 
+              className={`btn ${(isDashboardBase && activeTab === 'security') ? 'btn-primary' : 'btn-ghost'}`} 
               style={navItemStyle}
             >
               <Lock size={20} /> <span>Security Hub</span>
@@ -115,9 +116,9 @@ const Sidebar = () => {
             <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
           </button>
 
-          <button className="btn btn-ghost" style={{ ...navItemStyle, borderTop: '1px solid var(--border-glass)' }} onClick={() => { setIsOpen(false); navigate('/settings'); }}>
+          <NavLink to="/settings" onClick={() => setIsOpen(false)} className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-ghost'}`} style={{ ...navItemStyle, borderTop: '1px solid var(--border-glass)' }}>
             <SettingsIcon size={20} /> <span>SETTINGS</span>
-          </button>
+          </NavLink>
           
           <button className="btn btn-ghost" style={{ ...navItemStyle, color: '#ef4444' }} onClick={logout}>
             <LogOut size={20} /> <span>Logout</span>
