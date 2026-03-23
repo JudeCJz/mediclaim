@@ -3,6 +3,8 @@ import { useApp } from '../context/AppContext';
 import { Shield, Lock, Mail, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
+import logo from '../assets/logo.png';
+
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -40,7 +42,7 @@ const Login = () => {
       <div className="glass-panel" style={{ padding: '3.5rem', width: '90%', maxWidth: '480px', background: 'rgba(255,255,255,0.03)', border: '2px solid rgba(255,255,255,0.1)', boxShadow: '12px 12px 0px rgba(0,0,0,0.4)' }}>
         <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
           <div style={{ width: '80px', height: '80px', background: 'rgba(0,0,0,0.5)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2rem', boxShadow: '0 0 40px var(--primary-glow)', border: '4px solid var(--primary)', borderRadius: '15px' }}>
-            <img src="/logo.png" style={{ width: '55px', height: '55px', objectFit: 'contain' }} alt="Logo" />
+            <img src={logo} style={{ width: '55px', height: '55px', objectFit: 'contain' }} alt="MEDICLAIM_LOGO" />
           </div>
           <h1 style={{ fontSize: '2.5rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '-1px' }}>Mediclaim Portal</h1>
           <p style={{ color: 'var(--text-muted)', marginTop: '0.75rem', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.8rem' }}>Institutional Data Acquisition System</p>

@@ -4,14 +4,14 @@ import { db, firebaseConfig } from '../firebase';
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
 import { collection, query, onSnapshot, doc, setDoc, deleteDoc, updateDoc, addDoc, serverTimestamp, getDocs, where } from 'firebase/firestore';
-import { Users, FileText, Search, Download, Trash2, Upload, Loader2, Settings, ShieldCheck, Plus, X, Edit, Mail, Info, Send, Save, UserMinus, Key, ShieldAlert } from 'lucide-react';
+import { Users, FileText, Search, Download, Trash2, Upload, Loader2, Settings, ShieldCheck, Plus, X, Edit, Mail, Info, Send, Save, UserMinus, Key, ShieldAlert, Archive, RotateCcw } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 
 const recruiterApp = initializeApp(firebaseConfig, "ADMIN_MASTER_V2");
 const recruiterAuth = getAuth(recruiterApp);
 
 const AdminDashboard = () => {
-    const { user, activeFY, activeTab, setActiveTab } = useApp();
+    const { user, activeFY, activeTab, setActiveTab, isDemoMode, DEMO_FACULTY } = useApp();
     const [years, setYears] = useState([]);
     const [submissions, setSubmissions] = useState([]);
     const [faculty, setFaculty] = useState([]);
@@ -23,39 +23,51 @@ const AdminDashboard = () => {
     const [isMailing, setIsMailing] = useState(false);
     const [isSavingFY, setIsSavingFY] = useState(false);
     const [alertConfig, setAlertConfig] = useState(null);
-    const [showDisabled, setShowDisabled] = useState(false);
     const [dojFilter, setDojFilter] = useState("");
+    const [yearFilter, setYearFilter] = useState("");
+    const [monthFilter, setMonthFilter] = useState("");
     const [selectedUserToReset, setSelectedUserToReset] = useState(null);
     const [manualPass, setManualPass] = useState({ next: '', confirm: '' });
     const [showManualPass, setShowManualPass] = useState(false);
-    
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+
     const [editingFYId, setEditingFYId] = useState(null);
-    const [newFY, setNewFY] = useState({ 
-        name: '2026-2027', 
-        maxChildren: 2, 
-        maxParents: 4, 
-        enabled: true, 
+    const [newFY, setNewFY] = useState({
+        name: '2026-2027',
+        maxChildren: 2,
+        maxParents: 4,
+        enabled: true,
         policies: [
             { id: 'p1', label: '1.5 Lakhs', premium: 4500 },
             { id: 'p2', label: '5 Lakhs', premium: 8500 }
-        ] 
+        ]
     });
 
     const [tempPolicy, setTempPolicy] = useState({ label: '', premium: '' });
 
     useEffect(() => {
+        if (isDemoMode) {
+            setYears([activeFY]);
+            setFaculty(DEMO_FACULTY);
+            const savedSub = localStorage.getItem(`sub_tfaculty@college.edu_${activeFY.id}`);
+            if (savedSub) setSubmissions([JSON.parse(savedSub)]);
+            else setSubmissions([]);
+            return;
+        }
         const unsubYears = onSnapshot(collection(db, "financialYears"), (snap) => setYears(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         const unsubSubs = onSnapshot(collection(db, "submissions"), (snap) => setSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-        
+
         // Sorting faculty by createdAt DESC
         const unsubFaculty = onSnapshot(collection(db, "users"), (snap) => {
             const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.role === 'faculty');
             list.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
             setFaculty(list);
         });
-        
+
         return () => { unsubYears(); unsubSubs(); unsubFaculty(); };
-    }, []);
+    }, [isDemoMode, activeFY]);
 
     const addPolicyToFY = () => {
         if (!tempPolicy.label || !tempPolicy.premium) return;
@@ -81,7 +93,7 @@ const AdminDashboard = () => {
             }
             setShowFYModal(false);
             setEditingFYId(null);
-        } catch(err) { console.error(err); }
+        } catch (err) { console.error(err); }
         finally { setIsSavingFY(false); }
     };
 
@@ -101,22 +113,106 @@ const AdminDashboard = () => {
         await updateDoc(doc(db, "financialYears", id), { enabled: !status });
     };
 
-    const processBulk = async () => {
+    const handleBulkStatus = async (status) => {
+        setIsBulkProcessing(true);
+        try {
+            for (const id of selectedIds) {
+                await updateDoc(doc(db, "users", id), { status });
+            }
+            setSelectedIds([]);
+        } catch (e) { console.error(e); }
+        setIsBulkProcessing(false);
+    };
+
+    const handleBulkDelete = async () => {
+        setAlertConfig({
+            title: 'Bulk Delete',
+            type: 'danger',
+            text: `Permanently delete ${selectedIds.length} selected accounts and their records?`,
+            onConfirm: async () => {
+                setIsBulkProcessing(true);
+                for (const id of selectedIds) {
+                    await deleteDoc(doc(db, "users", id));
+                    const qS = query(collection(db, "submissions"), where("userId", "==", id));
+                    const snapS = await getDocs(qS);
+                    for (const d of snapS.docs) await deleteDoc(doc(db, "submissions", d.id));
+                }
+                setSelectedIds([]);
+                setIsBulkProcessing(false);
+            }
+        });
+    };
+
+    const archiveYear = async (fy) => {
         setIsProcessing(true);
+        try {
+            await updateDoc(doc(db, "financialYears", fy.id), { 
+                enabled: false, 
+                isArchived: true, 
+                archivedAt: serverTimestamp() 
+            });
+            const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
+            const snap = await getDocs(q);
+            const batch = snap.docs.map(d => updateDoc(doc(db, "submissions", d.id), { archived: true }));
+            await Promise.all(batch);
+            setAlertConfig({ title: 'SESSION ARCHIVED', text: `Session ${fy.name} has been formally closed and moved to records.` });
+        } catch (err) { 
+            console.error(err);
+            setAlertConfig({ title: 'ARCHIVE ERROR', type: 'danger', text: 'Critical failure during session archival.' });
+        } finally { setIsProcessing(false); }
+    };
+
+    const unarchiveYear = async (fy) => {
+        setIsProcessing(true);
+        try {
+            await updateDoc(doc(db, "financialYears", fy.id), { enabled: true, isArchived: false });
+            const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
+            const snap = await getDocs(q);
+            const batch = snap.docs.map(d => updateDoc(doc(db, "submissions", d.id), { archived: false }));
+            await Promise.all(batch);
+            setAlertConfig({ title: 'SESSION RESTORED', text: `Session ${fy.name} is now back in the active cycle.` });
+        } catch (err) { 
+            console.error(err);
+            setAlertConfig({ title: 'RESTORE ERROR', type: 'danger', text: 'Critical failure during session restoration.' });
+        } finally { setIsProcessing(false); }
+    };
+
+    const deleteFY = async (id) => {
+        try { await deleteDoc(doc(db, "financialYears", id)); } catch (err) { alert("Delete failed."); }
+    };
+
+    const processBulk = async () => {
+        setIsBulkProcessing(true);
         const rows = bulkData.split("\n").filter(r => r.includes(","));
+        let success = 0;
+        let skipped = 0;
+        let errors = 0;
+
         for (const row of rows) {
-            const [name, dept, email] = row.split(",").map(s => s.trim());
+            const parts = row.split(",").map(s => s.trim());
+            if (parts.length < 3) { skipped++; continue; }
+            const [name, dept, email] = parts;
             try {
                 const cred = await createUserWithEmailAndPassword(recruiterAuth, email, email);
-                await setDoc(doc(db, "users", cred.user.uid), { 
-                    name, email, role: "faculty", 
-                    department: dept || "Central Administration", 
+                await setDoc(doc(db, "users", cred.user.uid), {
+                    name, email, role: "faculty",
+                    department: dept || "Central Administration",
                     status: 'active',
                     createdAt: serverTimestamp()
                 });
-            } catch (err) { console.error(err); }
+                success++;
+            } catch (err) { 
+                if (err.code === 'auth/email-already-in-use') skipped++;
+                else errors++;
+                console.error(err); 
+            }
         }
-        alert("Registration complete."); setBulkData(""); setIsProcessing(false);
+        setAlertConfig({ 
+            title: 'REGISTRATION SUMMARY', 
+            text: `Process finished: ${success} Registered, ${skipped} Already Exist/Invalid, ${errors} Errors.` 
+        });
+        setBulkData(""); 
+        setIsBulkProcessing(false);
     };
 
     const processBulkDelete = async () => {
@@ -230,14 +326,40 @@ const AdminDashboard = () => {
                                         <td>CH: {y.maxChildren} / PA: {y.maxParents}</td>
                                         <td>
                                             <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                {!y.isArchived ? (
+                                                    <button className="btn btn-ghost" style={{ padding: '0.4rem', border: '1px solid var(--border-glass)', fontSize: '0.6rem', fontWeight: 900, color: 'var(--primary)' }} onClick={() => {
+                                                        setAlertConfig({
+                                                            title: 'FINALISE SESSION',
+                                                            text: `Formally close ${y.name}? This will reset all active enrollments and move them to history.`,
+                                                            onConfirm: () => archiveYear(y)
+                                                        });
+                                                    }}>
+                                                        ARCHIVE
+                                                    </button>
+                                                ) : (
+                                                    <button className="btn btn-ghost" style={{ padding: '0.4rem', border: '1px solid var(--primary)', fontSize: '0.6rem', fontWeight: 900, color: 'var(--primary)' }} onClick={() => {
+                                                        setAlertConfig({
+                                                            title: 'RESTORE SESSION',
+                                                            text: `Re-activate ${y.name}? History data will be restored to the active registry.`,
+                                                            onConfirm: () => unarchiveYear(y)
+                                                        });
+                                                    }}>
+                                                        RESTORE
+                                                    </button>
+                                                )}
                                                 <button className="btn btn-ghost" style={{ padding: '0.4rem' }} onClick={() => openEdit(y)}><Edit size={16} /></button>
-                                                <button className="btn btn-ghost" onClick={() => toggleYear(y.id, y.enabled)}>{y.enabled ? 'Off' : 'On'}</button>
+                                                <div style={{ display: 'flex', alignItems: 'center', marginLeft: '0.2rem' }}>
+                                                    <label className="inst-switch" style={{ transform: 'scale(0.7)', originX: 'center' }}>
+                                                        <input type="checkbox" checked={y.enabled} onChange={() => toggleYear(y.id, y.enabled)} />
+                                                        <span className="inst-slider"></span>
+                                                    </label>
+                                                </div>
                                                 <button className="btn btn-ghost" style={{ color: '#ef4444', padding: '0.4rem' }} onClick={() => {
                                                     setAlertConfig({
                                                         title: 'DELETE YEAR',
                                                         type: 'danger',
                                                         text: 'Permanently remove this financial year cycle?',
-                                                        onConfirm: async () => await deleteDoc(doc(db,"financialYears", y.id))
+                                                        onConfirm: () => deleteFY(y.id)
                                                     });
                                                 }}><Trash2 size={16} /></button>
                                             </div>
@@ -253,16 +375,51 @@ const AdminDashboard = () => {
             {activeTab === 'registry' && (
                 <div className="glass-panel" style={{ padding: '2.5rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3rem', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem' }}>
-                        <div style={{ display: 'flex', gap: '1rem', flex: 2, minWidth: '300px' }}>
-                            <div style={{ position: 'relative', flex: 1 }}>
-                                <Search size={22} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                                <input className="glass-panel" style={{ width: '100%', padding: '1.2rem 1.2rem 1.2rem 4.5rem', fontWeight: 700 }} placeholder="Filter registry records..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                        <div style={{ flex: 1.5, minWidth: '400px', maxWidth: '850px', position: 'relative' }}>
+                            <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
+                                <div style={{ position: 'relative', flex: 1 }}>
+                                    <Search size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                                    <input className="glass-panel" style={{ width: '100%', padding: '1.2rem 1.2rem 1.2rem 4rem', fontWeight: 700, fontSize: '1rem' }} placeholder="Search registry..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                </div>
+                                <button 
+                                    className={`btn ${isFilterOpen ? 'btn-primary' : 'btn-ghost'}`} 
+                                    style={{ padding: '1.2rem', height: '100%', border: '1px solid var(--border-glass)' }}
+                                    onClick={() => setIsFilterOpen(!isFilterOpen)}
+                                >
+                                    <Settings size={22} />
+                                </button>
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <label style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--primary)', letterSpacing: '1px' }}>FILTER_DOJ</label>
-                                <input type="date" className="glass-panel" style={{ padding: '0.8rem 1.2rem', height: '100%', color: 'white' }} value={dojFilter} onChange={e => setDojFilter(e.target.value)} />
+
+                            {/* --- POPUP FILTERS --- */}
+                            {isFilterOpen && (
+                                <div className="filter-popover" style={{ width: '360px' }}>
+                                    <div style={{ marginBottom: '1.5rem' }}>
+                                        <span className="filter-section-title">TIME FRAME</span>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginTop: '0.8rem' }}>
+                                            <select className="glass-panel" style={{ padding: '0.8rem', fontSize: '0.85rem', fontWeight: 700, color: 'white' }} value={yearFilter} onChange={e => setYearFilter(e.target.value)}>
+                                                <option value="">Year</option>
+                                                {[2022,2023,2024,2025,2026,2027].map(y => <option key={y} value={y.toString()}>{y}</option>)}
+                                            </select>
+                                            <select className="glass-panel" style={{ padding: '0.8rem', fontSize: '0.85rem', fontWeight: 700, color: 'white' }} value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
+                                                <option value="">Month</option>
+                                                {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m => <option key={m} value={m}>{new Date(2000, parseInt(m)-1).toLocaleString('default', { month: 'short' })}</option>)}
+                                            </select>
+                                        </div>
+                                        <div style={{ position: 'relative', marginTop: '0.8rem' }}>
+                                            <input type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem', color: 'white', fontSize: '0.85rem', fontWeight: 700 }} value={dojFilter} onChange={e => setDojFilter(e.target.value)} />
+                                        </div>
+                                    </div>
+
+                                    <button className="btn btn-ghost" style={{ width: '100%', color: '#ef4444', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900, border: '1px solid var(--border-glass)', padding: '0.8rem' }} onClick={() => { setYearFilter(""); setMonthFilter(""); setDojFilter(""); setIsFilterOpen(false); }}>CLEAR ALL FILTERS</button>
+                                </div>
+                            )}
+
+                            {/* --- FILTER PILLS --- */}
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '1.2rem' }}>
+                                {yearFilter && <div className="filter-pill" onClick={() => setYearFilter("")}>Year: {yearFilter} <X size={12} /></div>}
+                                {monthFilter && <div className="filter-pill" onClick={() => setMonthFilter("")}>Month: {new Date(2000, parseInt(monthFilter)-1).toLocaleString('default', { month: 'short' })} <X size={12} /></div>}
+                                {dojFilter && <div className="filter-pill" onClick={() => setDojFilter("")}>Joined: {dojFilter} <X size={12} /></div>}
                             </div>
-                            {dojFilter && <button className="btn btn-ghost" style={{ alignSelf: 'flex-end', padding: '1rem' }} onClick={() => setDojFilter("")}>CLEAR</button>}
                         </div>
                         <div style={{ display: 'flex', gap: '1rem', width: 'auto', flexWrap: 'wrap' }}>
                             <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setShowMailModal(true)}><Mail /> Send Confirmations</button>
@@ -274,7 +431,7 @@ const AdminDashboard = () => {
                             <thead><tr><th>Faculty Member</th><th>Status</th><th>Coverage</th><th>Premium</th><th>Lives</th><th>Actions</th></tr></thead>
                             <tbody>
                                 {submissions.filter(s => {
-                                    const matchesSearch = s.userName?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                                    const matchesSearch = s.userName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                         s.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                         s.empId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                         s.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -282,34 +439,40 @@ const AdminDashboard = () => {
                                         s.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                         s.gender?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                         s.doj?.toLowerCase().includes(searchTerm.toLowerCase());
-                                    
+
                                     const matchesDate = !dojFilter || s.doj === dojFilter;
-                                    return matchesSearch && matchesDate;
-                                }).map(s => (
-                                    <tr key={s.id}>
-                                        <td style={{ fontWeight: 800 }}>
-                                            {s.userName}
-                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>{s.email}</div>
-                                            <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 900, marginTop: '2px' }}>{s.gender || 'N/A'} | DOJ: {s.doj || 'N/A'}</div>
-                                        </td>
-                                        <td style={{ paddingLeft: '1rem' }}><ShieldCheck size={14} color="#22c55e" /> Validated</td>
-                                        <td style={{ fontWeight: 700 }}>{s.coverageId}</td>
-                                        <td style={{ fontWeight: 900, color: 'var(--primary)' }}>₹{s.premium?.toLocaleString()}</td>
-                                        <td style={{ fontWeight: 800 }}>{s.dependents?.length + 1}</td>
-                                        <td>
-                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                <button className="btn btn-ghost" style={{ padding: '0.4rem', color: '#ef4444' }} onClick={() => {
-                                                    setAlertConfig({
-                                                        title: 'REMOVE ENTRY',
-                                                        type: 'danger',
-                                                        text: 'Delete this enrollment record?',
-                                                        onConfirm: async () => await deleteDoc(doc(db,"submissions", s.id))
-                                                    });
-                                                }}><Trash2 size={18} /></button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
+                                    const matchesYear = !yearFilter || s.doj?.startsWith(yearFilter);
+                                    const matchesMonth = !monthFilter || s.doj?.includes(`-${monthFilter}-`);
+                                    const isNotArchived = !s.archived;
+                                    return matchesSearch && matchesDate && matchesYear && matchesMonth && isNotArchived;
+                                }).map(s => {
+                                    const uStatus = faculty.find(f => f.email === s.email)?.status;
+                                    return (
+                                        <tr key={s.id} style={{ opacity: uStatus === 'disabled' ? 0.4 : 1 }}>
+                                            <td style={{ fontWeight: 800 }}>
+                                                {s.userName}
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>{s.email}</div>
+                                                <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 900, marginTop: '2px' }}>{s.gender || 'N/A'} | DOJ: {s.doj || 'N/A'}</div>
+                                            </td>
+                                            <td style={{ paddingLeft: '1rem' }}><ShieldCheck size={14} color="#22c55e" /> Validated</td>
+                                            <td style={{ fontWeight: 700 }}>{s.coverageId}</td>
+                                            <td style={{ fontWeight: 900, color: 'var(--primary)' }}>₹{s.premium?.toLocaleString()}</td>
+                                            <td style={{ fontWeight: 800 }}>{(s.dependents?.length || 0) + 1}</td>
+                                            <td>
+                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                    <button className="btn btn-ghost" style={{ padding: '0.4rem', color: '#ef4444' }} onClick={() => {
+                                                        setAlertConfig({
+                                                            title: 'Remove Enrollment Record',
+                                                            type: 'danger',
+                                                            text: 'Delete this enrollment record?',
+                                                            onConfirm: async () => await deleteDoc(doc(db, "submissions", s.id))
+                                                        });
+                                                    }}><Trash2 size={18} /></button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -320,27 +483,28 @@ const AdminDashboard = () => {
                 <div className="glass-panel" style={{ padding: '3rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
                         <h2 style={{ fontWeight: 900 }}>Add Faculty Members</h2>
-                            <div style={{ display: 'flex', gap: '1rem' }}>
-                                <input 
-                                    type="file" 
-                                    id="csvUpload" 
-                                    accept=".csv,.txt" 
-                                    style={{ display: 'none' }} 
-                                    onChange={handleCSVUpload}
-                                />
-                                <button className="btn btn-ghost" onClick={() => document.getElementById('csvUpload').click()}>
-                                    <FileText size={18} /> IMPORT_CSV
-                                </button>
-                                <button className="btn btn-primary" onClick={() => setShowBulkModal(true)}>
-                                    <Plus size={18} /> ADD_FACULTY
-                                </button>
-                            </div>
+                        <div style={{ display: 'flex', gap: '1rem' }}>
+                            <input
+                                type="file"
+                                id="csvUpload"
+                                accept=".csv,.txt"
+                                style={{ display: 'none' }}
+                                onChange={handleFileUpload}
+                            />
+                            <button className="btn btn-ghost" onClick={() => document.getElementById('csvUpload').click()}>
+                                <FileText size={18} /> Import CSV
+                            </button>
+                            <button className="btn btn-primary" onClick={() => setShowBulkModal(true)}>
+                                <Plus size={18} /> Add Faculty
+                            </button>
+                        </div>
                     </div>
-                    <textarea 
-                        className="glass-panel" 
-                        style={{ width: '100%', minHeight: '300px', padding: '1.5rem', background: 'rgba(0,0,0,0.2)', color: 'white', fontWeight: 700 }} 
+                    <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 900, marginBottom: '0.5rem', opacity: 0.8 }}>FORMAT: Name, Department, Institutional_Email (One per line)</div>
+                    <textarea
+                        className="glass-panel"
+                        style={{ width: '100%', minHeight: '300px', padding: '1.5rem', background: 'rgba(44, 30, 30, 0.2)', color: 'white', fontWeight: 700 }}
                         value={bulkData} onChange={e => setBulkData(e.target.value)}
-                        placeholder="Name, Department, Email"
+                        placeholder="e.g. Jude, Engineering, jude@college.edu"
                     />
                     <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                         <button className="btn btn-ghost" style={{ color: '#ef4444', flex: 1 }} onClick={processBulkDelete} disabled={isProcessing || !bulkData}>
@@ -354,42 +518,85 @@ const AdminDashboard = () => {
                     <div style={{ marginTop: '5rem', borderTop: '2px dashed var(--border-glass)', paddingTop: '3rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '2rem', flexWrap: 'wrap', gap: '1.5rem' }}>
                             <div>
-                                <h2 style={{ fontWeight: 900 }}>Registered Personnel Archive</h2>
-                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 900, marginTop: '0.5rem' }}>[ SORTED_BY: NEWEST_FIRST ]</div>
+                                <h2 style={{ fontWeight: 900 }}>Registered Personnel Registry</h2>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 900, marginTop: '0.5rem' }}>[ Sorted by: Newest First ]</div>
                             </div>
-                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
-                                    <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                                    <input className="glass-panel" style={{ width: '100%', padding: '0.8rem 1rem 0.8rem 3.5rem', fontSize: '0.8rem' }} placeholder="Search Name, Email, DOJ, Phone..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                            <div style={{ flex: 1, maxWidth: '500px', position: 'relative' }}>
+                                <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
+                                    <div style={{ position: 'relative', flex: 1 }}>
+                                        <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                                        <input className="glass-panel" style={{ width: '100%', padding: '0.8rem 1rem 0.8rem 3.5rem', fontSize: '0.85rem', fontWeight: 700 }} placeholder="Search Personnel..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                                    </div>
+                                    <button 
+                                        className={`btn ${isFilterOpen ? 'btn-primary' : 'btn-ghost'}`} 
+                                        style={{ padding: '0.8rem', border: '1px solid var(--border-glass)' }}
+                                        onClick={() => setIsFilterOpen(!isFilterOpen)}
+                                    >
+                                        <Settings size={22} />
+                                    </button>
                                 </div>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                                    <input type="checkbox" checked={showDisabled} onChange={e => setShowDisabled(e.target.checked)} />
-                                    SHOW_DISABLED
-                                </label>
+                                {isFilterOpen && (
+                                    <div className="filter-popover" style={{ width: '360px' }}>
+                                        <div style={{ marginBottom: '1.5rem' }}>
+                                            <span className="filter-section-title">TIME FRAME</span>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginTop: '0.8rem' }}>
+                                                <select className="glass-panel" style={{ padding: '0.8rem', fontSize: '0.85rem', fontWeight: 700, color: 'white' }} value={yearFilter} onChange={e => setYearFilter(e.target.value)}>
+                                                    <option value="">Year</option>
+                                                    {[2022,2023,2024,2025,2026,2027].map(y => <option key={y} value={y.toString()}>{y}</option>)}
+                                                </select>
+                                                <select className="glass-panel" style={{ padding: '0.8rem', fontSize: '0.85rem', fontWeight: 700, color: 'white' }} value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
+                                                    <option value="">Month</option>
+                                                    {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m => <option key={m} value={m}>{new Date(2000, parseInt(m)-1).toLocaleString('default', { month: 'short' })}</option>)}
+                                                </select>
+                                            </div>
+                                            <div style={{ position: 'relative', marginTop: '0.8rem' }}>
+                                                <input type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem', color: 'white', fontSize: '0.85rem', fontWeight: 700 }} value={dojFilter} onChange={e => setDojFilter(e.target.value)} />
+                                            </div>
+                                        </div>
+
+                                        <button className="btn btn-ghost" style={{ width: '100%', color: '#ef4444', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900, border: '1px solid var(--border-glass)', padding: '0.8rem' }} onClick={() => { setYearFilter(""); setMonthFilter(""); setDojFilter(""); setIsFilterOpen(false); }}>CLEAR ALL FILTERS</button>
+                                    </div>
+                                )}
                             </div>
                         </div>
+
+                        {selectedIds.length > 0 && (
+                            <div className="glass-panel" style={{ padding: '1rem 2rem', marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--primary-glow)', border: '1px solid var(--primary)' }}>
+                                <span style={{ fontWeight: 900, fontSize: '0.8rem' }}>{selectedIds.length} ACCOUNTS SELECTED</span>
+                                <div style={{ display: 'flex', gap: '1rem' }}>
+                                    <button className="btn btn-primary" style={{ padding: '0.6rem 1rem', fontSize: '0.7rem' }} onClick={() => handleBulkStatus('active')} disabled={isProcessingBulk}>Enable All</button>
+                                    <button className="btn btn-ghost" style={{ padding: '0.6rem 1rem', fontSize: '0.7rem' }} onClick={() => handleBulkStatus('disabled')} disabled={isProcessingBulk}>Disable All</button>
+                                    <button className="btn btn-ghost" style={{ padding: '0.6rem 1rem', fontSize: '0.7rem', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }} onClick={handleBulkDelete} disabled={isProcessingBulk}>Delete All</button>
+                                    <button className="btn btn-ghost" style={{ padding: '0.6rem', border: 'none' }} onClick={() => setSelectedIds([])}><X size={15} /></button>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="table-responsive">
                             <table className="data-table">
                                 <thead>
-                                    <tr><th>Faculty Member</th><th>Department</th><th>Phone / DOJ</th><th>Access Status</th><th>Manage</th></tr>
+                                    <tr><th style={{ width: '40px' }}><input type="checkbox" checked={selectedIds.length > 0 && selectedIds.length === faculty.length} onChange={(e) => { if(e.target.checked) setSelectedIds(faculty.map(f => f.id)); else setSelectedIds([]); }} /></th><th>Faculty Member</th><th>Department</th><th>Phone / DOJ</th><th>Access Status</th><th>Manage</th></tr>
                                 </thead>
                                 <tbody>
                                     {faculty.filter(f => {
                                         const q = facultySearch.toLowerCase();
-                                        const matchesSearch = f.name?.toLowerCase().includes(q) || 
+                                        const matchesSearch = f.name?.toLowerCase().includes(q) ||
                                             f.email?.toLowerCase().includes(q) ||
                                             f.phone?.toLowerCase().includes(q) ||
                                             f.doj?.toLowerCase().includes(q) ||
                                             f.department?.toLowerCase().includes(q);
-                                        const matchesStatus = showDisabled || f.status !== 'disabled';
-                                        return matchesSearch && matchesStatus;
+                                        const matchesDate = !dojFilter || f.doj === dojFilter;
+                                        const matchesYear = !yearFilter || f.doj?.startsWith(yearFilter);
+                                        const matchesMonth = !monthFilter || f.doj?.includes(`-${monthFilter}-`);
+                                        return matchesSearch && matchesDate && matchesYear && matchesMonth;
                                     }).map(f => (
-                                        <tr key={f.id}>
+                                        <tr key={f.id} style={{ opacity: f.status === 'disabled' ? 0.4 : 1, transition: 'all 0.3s ease' }}>
+                                            <td><input type="checkbox" checked={selectedIds.includes(f.id)} onChange={() => { if(selectedIds.includes(f.id)) setSelectedIds(selectedIds.filter(id => id !== f.id)); else setSelectedIds([...selectedIds, f.id]); }} /></td>
                                             <td style={{ fontWeight: 800 }}>{f.name}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{f.email}</div></td>
                                             <td style={{ fontWeight: 700 }}>{f.department || 'Central Admin'}</td>
                                             <td style={{ fontSize: '0.75rem', fontWeight: 900 }}>
-                                                <div>{f.phone || 'NO_PHONE'}</div>
-                                                <div style={{ opacity: 0.6 }}>{f.doj ? `JOINED: ${f.doj}` : 'DOJ_NOT_SET'}</div>
+                                                <div>{f.phone || 'No Phone'}</div>
+                                                <div style={{ opacity: 0.6 }}>{f.doj ? `Joined: ${f.doj}` : 'DOJ Not Set'}</div>
                                             </td>
                                             <td>
                                                 {f.status === 'disabled' ? (
@@ -398,41 +605,54 @@ const AdminDashboard = () => {
                                                     <div style={{ color: '#22c55e', fontSize: '0.7rem', fontWeight: 900 }}>ACTIVE / ACCESS</div>
                                                 )}
                                             </td>
-                                             <td>
-                                                 <button className="btn btn-ghost" style={{ color: '#ef4444' }} onClick={() => {
-                                                     setAlertConfig({
-                                                         title: 'REMOVE PERSON',
-                                                         type: 'danger',
-                                                         text: `Permanently delete ${f.name} and all their records?`,
-                                                         onConfirm: async () => {
-                                                             await deleteDoc(doc(db, "users", f.id));
-                                                             const qS = query(collection(db, "submissions"), where("userId", "==", f.id));
-                                                             const snapS = await getDocs(qS);
-                                                             for (const d of snapS.docs) await deleteDoc(doc(db, "submissions", d.id));
-                                                         }
-                                                     });
-                                                 }}>
-                                                     <Trash2 size={18} />
-                                                 </button>
-                                             </td>
-                                         </tr>
-                                     ))}
-                                 </tbody>
-                             </table>
-                         </div>
-                         {faculty.filter(f => {
+                                            <td>
+                                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                                                    <label className="inst-switch" style={{ transform: 'scale(0.7)' }}>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={f.status !== 'disabled'} 
+                                                            onChange={async () => {
+                                                                const ns = f.status === 'disabled' ? 'active' : 'disabled';
+                                                                await updateDoc(doc(db, "users", f.id), { status: ns });
+                                                            }} 
+                                                        />
+                                                        <span className="inst-slider"></span>
+                                                    </label>
+                                                    <button className="btn btn-ghost" style={{ color: '#ef4444', padding: '0.4rem' }} onClick={() => {
+                                                        setAlertConfig({
+                                                            title: 'Remove Personnel',
+                                                            type: 'danger',
+                                                            text: `Permanently delete ${f.name} and all their records?`,
+                                                            onConfirm: async () => {
+                                                                await deleteDoc(doc(db, "users", f.id));
+                                                                const qS = query(collection(db, "submissions"), where("userId", "==", f.id));
+                                                                const snapS = await getDocs(qS);
+                                                                for (const d of snapS.docs) await deleteDoc(doc(db, "submissions", d.id));
+                                                            }
+                                                        });
+                                                    }}>
+                                                        <Trash2 size={18} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        {faculty.filter(f => {
                             const q = facultySearch.toLowerCase();
-                            const matchesSearch = f.name?.toLowerCase().includes(q) || 
+                            const matchesSearch = f.name?.toLowerCase().includes(q) ||
                                 f.email?.toLowerCase().includes(q) ||
                                 f.phone?.toLowerCase().includes(q) ||
                                 f.doj?.toLowerCase().includes(q) ||
                                 f.department?.toLowerCase().includes(q);
                             const matchesStatus = showDisabled || f.status !== 'disabled';
                             return matchesSearch && matchesStatus;
-                         }).length === 0 && <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>No accounts registered yet.</div>}
-                     </div>
-                 </div>
-             )}
+                        }).length === 0 && <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>No accounts registered yet.</div>}
+                    </div>
+                </div>
+            )}
 
             {activeTab === 'security' && (
                 <div className="glass-panel" style={{ padding: '2.5rem' }}>
@@ -440,15 +660,42 @@ const AdminDashboard = () => {
                         <h2 style={{ fontWeight: 900 }}>Password Reset Hub</h2>
                         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Send password reset links to any faculty member</p>
                     </div>
-                    <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '280px', maxWidth: '600px', alignItems: 'center' }}>
-                        <div style={{ position: 'relative', flex: 1 }}>
-                            <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                            <input className="glass-panel" style={{ width: '100%', padding: '0.8rem 1rem 0.8rem 3.5rem', fontSize: '0.8rem' }} placeholder="Search faculty email..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                    <div style={{ flex: 1, maxWidth: '600px', position: 'relative' }}>
+                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                            <div style={{ position: 'relative', flex: 1 }}>
+                                <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                                <input className="glass-panel" style={{ width: '100%', padding: '1rem 1rem 1rem 3.5rem', fontSize: '0.9rem', fontWeight: 700 }} placeholder="Search faculty email..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                            </div>
+                            <button 
+                                className={`btn ${isFilterOpen ? 'btn-primary' : 'btn-ghost'}`} 
+                                style={{ padding: '1rem', border: '1px solid var(--border-glass)' }}
+                                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                            >
+                                <Settings size={22} />
+                            </button>
                         </div>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                            <input type="checkbox" checked={showDisabled} onChange={e => setShowDisabled(e.target.checked)} />
-                            SHOW_DISABLED
-                        </label>
+                        {isFilterOpen && (
+                            <div className="filter-popover" style={{ width: '360px' }}>
+                                <div style={{ marginBottom: '1.5rem' }}>
+                                    <span className="filter-section-title">TIME FRAME</span>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginTop: '0.8rem' }}>
+                                        <select className="glass-panel" style={{ padding: '0.8rem', fontSize: '0.85rem', fontWeight: 700, color: 'white' }} value={yearFilter} onChange={e => setYearFilter(e.target.value)}>
+                                            <option value="">Year</option>
+                                            {[2022,2023,2024,2025,2026,2027].map(y => <option key={y} value={y.toString()}>{y}</option>)}
+                                        </select>
+                                        <select className="glass-panel" style={{ padding: '0.8rem', fontSize: '0.85rem', fontWeight: 700, color: 'white' }} value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
+                                            <option value="">Month</option>
+                                            {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m => <option key={m} value={m}>{new Date(2000, parseInt(m)-1).toLocaleString('default', { month: 'short' })}</option>)}
+                                        </select>
+                                    </div>
+                                    <div style={{ position: 'relative', marginTop: '0.8rem' }}>
+                                        <input type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem', color: 'white', fontSize: '0.85rem', fontWeight: 700 }} value={dojFilter} onChange={e => setDojFilter(e.target.value)} />
+                                    </div>
+                                </div>
+
+                                <button className="btn btn-ghost" style={{ width: '100%', color: '#ef4444', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900, border: '1px solid var(--border-glass)', padding: '0.8rem' }} onClick={() => { setYearFilter(""); setMonthFilter(""); setDojFilter(""); setIsFilterOpen(false); }}>CLEAR ALL FILTERS</button>
+                            </div>
+                        )}
                     </div>
                     <div className="table-responsive">
                         <table className="data-table">
@@ -456,9 +703,11 @@ const AdminDashboard = () => {
                             <tbody>
                                 {faculty.filter(f => {
                                     const q = facultySearch.toLowerCase();
-                                    const matchesSearch = f.name?.toLowerCase().includes(q) || f.email?.toLowerCase().includes(q) || f.doj?.includes(q) || f.phone?.includes(q);
-                                    const matchesStatus = showDisabled || f.status !== 'disabled';
-                                    return matchesSearch && matchesStatus;
+                                    const matchesSearch = f.email?.toLowerCase().includes(q) || f.name?.toLowerCase().includes(q) || f.doj?.includes(q) || f.phone?.includes(q);
+                                    const matchesDate = !dojFilter || f.doj === dojFilter;
+                                    const matchesYear = !yearFilter || f.doj?.startsWith(yearFilter);
+                                    const matchesMonth = !monthFilter || f.doj?.includes(`-${monthFilter}-`);
+                                    return matchesSearch && matchesDate && matchesYear && matchesMonth;
                                 }).map(f => (
                                     <tr key={f.id}>
                                         <td style={{ fontWeight: 900 }}>{f.name}</td>
@@ -468,7 +717,7 @@ const AdminDashboard = () => {
                                                 setSelectedUserToReset(f);
                                                 setManualPass({ next: '', confirm: '' });
                                             }}>
-                                                <Key size={16} /> RESET PASSWORD
+                                                <Key size={16} /> Reset Password
                                             </button>
                                         </td>
                                     </tr>
@@ -485,30 +734,30 @@ const AdminDashboard = () => {
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3rem', alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                                 <Key size={24} color="var(--primary)" />
-                                <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1.2rem', letterSpacing: '1px' }}>Access PIN Change</h2>
+                                <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1.2rem', letterSpacing: '1px' }}>Change Access PIN</h2>
                             </div>
                             <button className="btn btn-ghost" onClick={() => setSelectedUserToReset(null)}><X /></button>
                         </div>
 
                         <div style={{ marginBottom: '2rem' }}>
-                            <p style={{ fontSize: '0.8rem', opacity: 0.6, fontWeight: 900, marginBottom: '0.5rem' }}>TARGET_USER</p>
+                            <p style={{ fontSize: '0.8rem', opacity: 0.6, fontWeight: 900, marginBottom: '0.5rem' }}>User Details</p>
                             <div style={{ fontWeight: 900, fontSize: '1.1rem', color: 'var(--primary)' }}>{selectedUserToReset.name}</div>
                             <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>{selectedUserToReset.email}</div>
                         </div>
 
                         <div style={{ display: 'grid', gap: '1.5rem' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                <input 
-                                    type={showManualPass ? "text" : "password"} className="glass-panel" 
-                                    style={{ width: '100%', padding: '1.2rem', fontWeight: 700 }} 
+                                <input
+                                    type={showManualPass ? "text" : "password"} className="glass-panel"
+                                    style={{ width: '100%', padding: '1.2rem', fontWeight: 700 }}
                                     placeholder="New Password"
-                                    value={manualPass.next} onChange={e => setManualPass({...manualPass, next: e.target.value})}
+                                    value={manualPass.next} onChange={e => setManualPass({ ...manualPass, next: e.target.value })}
                                 />
-                                <input 
-                                    type={showManualPass ? "text" : "password"} className="glass-panel" 
-                                    style={{ width: '100%', padding: '1.2rem', fontWeight: 700 }} 
+                                <input
+                                    type={showManualPass ? "text" : "password"} className="glass-panel"
+                                    style={{ width: '100%', padding: '1.2rem', fontWeight: 700 }}
                                     placeholder="Confirm New"
-                                    value={manualPass.confirm} onChange={e => setManualPass({...manualPass, confirm: e.target.value})}
+                                    value={manualPass.confirm} onChange={e => setManualPass({ ...manualPass, confirm: e.target.value })}
                                 />
                             </div>
 
@@ -518,20 +767,20 @@ const AdminDashboard = () => {
                             </label>
 
                             <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '1.5rem', marginTop: '1rem' }} onClick={() => {
-                                if (manualPass.next !== manualPass.confirm) return alert("PROTOCOL_MISMATCH: Passwords do not match.");
-                                if (manualPass.next.length < 6) return alert("SECURITY_VIOLATION: Minimum 6 characters required.");
-                                
+                                if (manualPass.next !== manualPass.confirm) return alert("Passwords do not match.");
+                                if (manualPass.next.length < 6) return alert("Security Alert: Minimum 6 characters required.");
+
                                 // Actually update Firestore so Login can use it as an override
                                 const userRef = doc(db, "users", selectedUserToReset.id);
                                 setDoc(userRef, { passwordOverwrite: manualPass.next }, { merge: true }).then(() => {
                                     setAlertConfig({
-                                        title: 'ACCESS_REVOLVED',
+                                        title: 'Password Updated Successfully',
                                         text: `Password for ${selectedUserToReset.name} has been manually updated. They can now login using this new PIN.`,
                                         onConfirm: () => setSelectedUserToReset(null)
                                     });
-                                }).catch(e => alert("SYSTEM_ERROR: Force update failed."));
+                                }).catch(e => alert("Error: Update failed."));
                             }}>
-                                UPDATE PASSWORD
+                                CHANGE PASSWORD
                             </button>
                         </div>
                     </div>
@@ -542,22 +791,22 @@ const AdminDashboard = () => {
                 <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(10px)' }}>
                     <div className="glass-panel" style={{ width: '90%', maxWidth: '700px', padding: '3rem', maxHeight: '90vh', overflowY: 'auto' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2.5rem', alignItems: 'center' }}>
-                            <h2 style={{ fontWeight: 900 }}>{editingFYId ? 'Modify Financial Cycle' : 'Initialize Enrollment Session'}</h2>
+                            <h2 style={{ fontWeight: 900 }}>{editingFYId ? 'Update Enrollment Session' : 'Setup New Enrollment'}</h2>
                         </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '2.5rem' }}>
                             <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>SESSION NAME</label>
-                                <input className="glass-panel" style={{ width: '100%', padding: '1rem' }} placeholder="EX: 2026-27" value={newFY.name} onChange={e => setNewFY({...newFY, name: e.target.value})} />
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>ENROLLMENT NAME</label>
+                                <input className="glass-panel" style={{ width: '100%', padding: '1rem' }} placeholder="EX: 2026-27" value={newFY.name} onChange={e => setNewFY({ ...newFY, name: e.target.value })} />
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                                 <div>
                                     <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>CHILD LIMIT</label>
-                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.maxChildren} onChange={e => setNewFY({...newFY, maxChildren: Number(e.target.value)})} />
+                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.maxChildren} onChange={e => setNewFY({ ...newFY, maxChildren: Number(e.target.value) })} />
                                 </div>
                                 <div>
                                     <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>PARENT LIMIT</label>
-                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.maxParents} onChange={e => setNewFY({...newFY, maxParents: Number(e.target.value)})} />
+                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.maxParents} onChange={e => setNewFY({ ...newFY, maxParents: Number(e.target.value) })} />
                                 </div>
                             </div>
                         </div>
@@ -565,8 +814,8 @@ const AdminDashboard = () => {
                         <div style={{ borderTop: '2px dashed var(--border-glass)', paddingTop: '2.5rem' }}>
                             <h3 style={{ fontSize: '1rem', fontWeight: 900, marginBottom: '1.5rem' }}>CONFIGURE COVERAGE TIERS</h3>
                             <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
-                                <input className="glass-panel" style={{ flex: 2, padding: '1rem', minWidth: '200px' }} placeholder="Label (Ex: 10 Lakhs)" value={tempPolicy.label} onChange={e => setTempPolicy({...tempPolicy, label: e.target.value})} />
-                                <input type="number" className="glass-panel" style={{ flex: 1, padding: '1rem', minWidth: '120px' }} placeholder="Premium" value={tempPolicy.premium} onChange={e => setTempPolicy({...tempPolicy, premium: e.target.value})} />
+                                <input className="glass-panel" style={{ flex: 2, padding: '1rem', minWidth: '200px' }} placeholder="Label (Ex: 10 Lakhs)" value={tempPolicy.label} onChange={e => setTempPolicy({ ...tempPolicy, label: e.target.value })} />
+                                <input type="number" className="glass-panel" style={{ flex: 1, padding: '1rem', minWidth: '120px' }} placeholder="Premium" value={tempPolicy.premium} onChange={e => setTempPolicy({ ...tempPolicy, premium: e.target.value })} />
                                 <button className="btn btn-primary" style={{ padding: '0 2rem', height: '54px' }} onClick={addPolicyToFY}>ADD TIER</button>
                             </div>
 
@@ -583,7 +832,7 @@ const AdminDashboard = () => {
                         <div style={{ marginTop: '4rem', display: 'flex', gap: '1.5rem' }}>
                             <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setShowFYModal(false)}>CANCEL</button>
                             <button className="btn btn-primary" style={{ flex: 2, justifyContent: 'center' }} onClick={saveFY} disabled={isSavingFY}>
-                                {isSavingFY ? <div className="btn-loader"><ShieldCheck size={20} /></div> : <><Save size={18} /> {editingFYId ? 'UPDATE SESSION' : 'START ENROLLMENT CYCLE'}</>}
+                                {isSavingFY ? <div className="btn-loader"><ShieldCheck size={20} /></div> : <><Save size={18} /> {editingFYId ? 'SAVE CHANGES' : 'START ENROLLMENT SESSION'}</>}
                             </button>
                         </div>
                     </div>
@@ -600,9 +849,9 @@ const AdminDashboard = () => {
                         <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '2rem', border: '2px dashed var(--border-glass)' }}>
                             <p style={{ fontWeight: 800 }}>Target: All {submissions.length} Enrolled Faculty</p>
                             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '1rem', lineHeight: '1.6' }}>
-                                <strong>Message Content:</strong><br/>
-                                • Verified Plan Label (e.g. 5 Lakhs Coverage)<br/>
-                                • Calculated Premium Amount<br/>
+                                <strong>Message Content:</strong><br />
+                                • Verified Plan Label (e.g. 5 Lakhs Coverage)<br />
+                                • Calculated Premium Amount<br />
                                 • Detailed Dependent Breakdown
                             </div>
                         </div>
@@ -615,6 +864,89 @@ const AdminDashboard = () => {
                     </div>
                 </div>
             )}
+            {activeTab === 'archives' && (
+                <div className="glass-panel" style={{ padding: '3rem' }}>
+                    <div style={{ marginBottom: '3.5rem' }}>
+                        <h2 style={{ fontSize: '2.5rem', fontWeight: 900 }}>Global Audit Archives</h2>
+                        <p style={{ color: 'var(--text-muted)', fontWeight: 700 }}>Master repository for all finalized enrollment cycles across all departments.</p>
+                    </div>
+                    
+                    {years.filter(y => y.isArchived).length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '5rem', opacity: 0.5 }}>
+                            <Settings size={60} style={{ marginBottom: '1.5rem' }} />
+                            <h3 style={{ fontWeight: 900 }}>No Archived Sessions</h3>
+                            <p style={{ fontSize: '0.8rem' }}>Move a financial year to the archive to generate permanent reports.</p>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            {years.filter(y => y.isArchived).map(y => (
+                                <div key={y.id} className="glass-panel" style={{ 
+                                    padding: '1.2rem 2.5rem', 
+                                    border: '2px solid var(--border-glass)', 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    justifyContent: 'space-between',
+                                    transition: 'transform 0.2s ease',
+                                    background: 'rgba(255,255,255,0.01)'
+                                }} onMouseEnter={e => e.currentTarget.style.transform = 'translateX(12px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateX(0)'}>
+                                    
+                                    <div style={{ display: 'flex', gap: '5rem', alignItems: 'center' }}>
+                                        <div style={{ minWidth: '130px' }}>
+                                            <div style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--primary)', letterSpacing: '2px' }}>YEAR</div>
+                                            <div style={{ fontSize: '1.5rem', fontWeight: 900 }}>FY {y.name}</div>
+                                        </div>
+                                        
+                                        <div>
+                                            <div style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>ARCHIVED DATE</div>
+                                            <div style={{ fontWeight: 900, fontSize: '0.95rem' }}>{y.archivedAt?.toDate().toLocaleDateString() || 'N/A'}</div>
+                                        </div>
+
+                                        <div style={{ padding: '0.4rem 1.2rem', border: '1px solid var(--primary)', fontSize: '0.65rem', fontWeight: 900, color: 'var(--primary)', background: 'rgba(99,102,241,0.05)' }}>
+                                            DATA SAVED
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '1rem' }}>
+                                        <button className="btn btn-primary" style={{ padding: '0.7rem 1.8rem', fontSize: '0.75rem' }} onClick={() => {
+                                            const h = "Name,EmpId,Email,Dept,Coverage,Premium,Lives\n";
+                                            const b = submissions.filter(s => s.fyId === y.id).map(s => 
+                                                `"${s.userName}","${s.empId}","${s.email}","${s.department}","${s.coverageId}","${s.premium}","${(s.dependents?.length || 0) + 1}"`
+                                            ).join("\n");
+                                            const blob = new Blob([h + b], { type: 'text/csv' });
+                                            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `Global_Audit_Report_${y.name}.csv`; a.click();
+                                        }}>
+                                            <Download size={16} /> GET_REPORT
+                                        </button>
+
+                                        <button className="btn btn-ghost" style={{ border: '2px solid var(--primary)', color: 'var(--primary)', padding: '0.7rem 1.8rem', fontSize: '0.75rem' }} onClick={() => {
+                                            setAlertConfig({
+                                                title: 'RESTORE YEAR',
+                                                text: `Restore ${y.name} to the active registry? This will make archived submissions editable again.`,
+                                                onConfirm: () => unarchiveYear(y)
+                                            });
+                                        }}>
+                                            <RotateCcw size={16} /> RESTORE
+                                        </button>
+
+                                        <button className="btn btn-ghost" style={{ color: '#ef4444', border: '2px solid rgba(239,68,68,0.2)', padding: '0.7rem 1.2rem', fontSize: '0.75rem' }} onClick={() => {
+                                            setAlertConfig({
+                                                title: 'PERMANENT DELETE',
+                                                type: 'danger',
+                                                text: `Permanently delete this global archive snapshot for ${y.name}? All related faculty entries will be permanently removed.`,
+                                                onConfirm: async () => await deleteDoc(doc(db, "financialYears", y.id))
+                                            });
+                                        }}>
+                                            <Trash2 size={16} /> DELETE FOREVER
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
+
         </div>
     );
 };

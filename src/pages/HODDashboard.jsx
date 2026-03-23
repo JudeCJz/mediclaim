@@ -4,7 +4,7 @@ import { db, firebaseConfig } from '../firebase';
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
 import { collection, query, onSnapshot, doc, setDoc, deleteDoc, updateDoc, addDoc, serverTimestamp, getDocs, where } from 'firebase/firestore';
-import { Users, Search, Download, Trash2, Upload, Loader2, Settings, Plus, X, Edit, Mail, Info, Send, Save, Archive, User, Phone, Briefcase, Heart, CheckCircle, BarChart3, Activity, Clock, ArrowRight, Lock, Unlock, ShieldAlert, Key } from 'lucide-react';
+import { Users, Search, Download, Trash2, Upload, Loader2, Settings, Plus, X, Edit, Mail, Info, Send, Save, Archive, User, Phone, Briefcase, Heart, CheckCircle, BarChart3, Activity, Clock, ArrowRight, Lock, Unlock, ShieldAlert, Key, RotateCcw } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import * as XLSX from 'xlsx';
 import emailjs from 'emailjs-com';
@@ -13,13 +13,16 @@ const recruiterApp = initializeApp(firebaseConfig, "HR_MASTER_V5");
 const recruiterAuth = getAuth(recruiterApp);
 
 const HODDashboard = () => {
-    const { user, activeFY, activeTab, setActiveTab } = useApp();
+    const { user, activeFY, activeTab, setActiveTab, isDemoMode, DEMO_FACULTY } = useApp();
     const [years, setYears] = useState([]);
     const [submissions, setSubmissions] = useState([]);
     const [faculty, setFaculty] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [facultySearch, setFacultySearch] = useState('');
     const [dojFilter, setDojFilter] = useState("");
+    const [yearFilter, setYearFilter] = useState("");
+    const [monthFilter, setMonthFilter] = useState("");
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
     const [bulkData, setBulkData] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
     const [showFYModal, setShowFYModal] = useState(false);
@@ -31,8 +34,7 @@ const HODDashboard = () => {
     const [selectedUserToReset, setSelectedUserToReset] = useState(null);
     const [manualPass, setManualPass] = useState({ next: '', confirm: '' });
     const [showManualPass, setShowManualPass] = useState(false);
-    const [showDisabled, setShowDisabled] = useState(false);
-
+    const [selectedIds, setSelectedIds] = useState([]);
     const [editingFYId, setEditingFYId] = useState(null);
     const [alertConfig, setAlertConfig] = useState(null); // { title: '', type: 'info', onConfirm: null }
     const [newFY, setNewFY] = useState({
@@ -51,6 +53,15 @@ const HODDashboard = () => {
     const [tempPolicy, setTempPolicy] = useState({ label: '', premium: '' });
 
     useEffect(() => {
+        if (isDemoMode) {
+            setYears([activeFY]);
+            setFaculty(DEMO_FACULTY);
+            // Check for demo submission
+            const savedSub = localStorage.getItem(`sub_tfaculty@college.edu_${activeFY.id}`);
+            if (savedSub) setSubmissions([JSON.parse(savedSub)]);
+            else setSubmissions([]);
+            return;
+        }
         const unsubYears = onSnapshot(collection(db, "financialYears"), (snap) => setYears(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         const unsubSubs = onSnapshot(collection(db, "submissions"), (snap) => setSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
         const unsubFaculty = onSnapshot(collection(db, "users"), (snap) => {
@@ -59,7 +70,7 @@ const HODDashboard = () => {
             setFaculty(list);
         });
         return () => { unsubYears(); unsubSubs(); unsubFaculty(); };
-    }, []);
+    }, [isDemoMode, activeFY]);
 
     const saveFY = async () => {
         if (!newFY.name || newFY.policies.length === 0) return alert("Validation failed: Session Name and at least one Policy Tier required.");
@@ -85,6 +96,66 @@ const HODDashboard = () => {
             setEditingSub(null);
         } catch (err) { alert("Save error."); }
         finally { setIsSavingSub(false); }
+    };
+
+    const archiveYear = async (fy) => {
+        setIsProcessing(true);
+        try {
+            await updateDoc(doc(db, "financialYears", fy.id), { enabled: false, isArchived: true, archivedAt: serverTimestamp() });
+            const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
+            const snap = await getDocs(q);
+            const batch = snap.docs.map(d => updateDoc(doc(db, "submissions", d.id), { archived: true }));
+            await Promise.all(batch);
+            setAlertConfig({ title: 'SESSION ARCHIVED', text: `Session ${fy.name} has been formally closed and moved to records.` });
+        } catch (err) { 
+            console.error(err);
+            setAlertConfig({ title: 'ARCHIVE ERROR', type: 'danger', text: 'Critical failure during session archival.' });
+        } finally { setIsProcessing(false); }
+    };
+
+    const handleBulkStatus = async (status) => {
+        setIsBulkProcessing(true);
+        try {
+            for (const id of selectedIds) {
+                await updateDoc(doc(db, "users", id), { status });
+            }
+            setSelectedIds([]);
+        } catch (e) { console.error(e); }
+        setIsBulkProcessing(false);
+    };
+
+    const handleBulkDelete = async () => {
+        setAlertConfig({
+            title: 'Bulk Delete',
+            type: 'danger',
+            text: `Permanently delete ${selectedIds.length} selected accounts and their records?`,
+            onConfirm: async () => {
+                setIsBulkProcessing(true);
+                for (const id of selectedIds) {
+                    await deleteDoc(doc(db, "users", id));
+                    const qS = query(collection(db, "submissions"), where("userId", "==", id));
+                    const snapS = await getDocs(qS);
+                    for (const d of snapS.docs) await deleteDoc(doc(db, "submissions", d.id));
+                }
+                setSelectedIds([]);
+                setIsBulkProcessing(false);
+            }
+        });
+    };
+
+    const unarchiveYear = async (fy) => {
+        setIsProcessing(true);
+        try {
+            await updateDoc(doc(db, "financialYears", fy.id), { enabled: true, isArchived: false });
+            const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
+            const snap = await getDocs(q);
+            const batch = snap.docs.map(d => updateDoc(doc(db, "submissions", d.id), { archived: false }));
+            await Promise.all(batch);
+            setAlertConfig({ title: 'SESSION RESTORED', text: `Session ${fy.name} is now back in the active registry.` });
+        } catch (err) { 
+            console.error(err);
+            setAlertConfig({ title: 'RESTORE ERROR', type: 'danger', text: 'Critical failure during session restoration.' });
+        } finally { setIsProcessing(false); }
     };
 
     const exportExcel = () => {
@@ -113,7 +184,7 @@ const HODDashboard = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap' }}>
                         {activeYear && (
                             <span style={{ padding: '0.4rem 1rem', background: 'var(--primary-glow)', color: 'var(--primary)', border: '1px solid var(--primary)', fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '1px' }}>
-                                ACTIVE_CYCLE: {activeYear.name}
+                                Active Cycle: {activeYear.name}
                             </span>
                         )}
                     </div>
@@ -202,13 +273,9 @@ const HODDashboard = () => {
                 <div className="glass-panel" style={{ padding: '2.5rem' }}>
                     <div className="flex-adaptive-header" style={{ marginBottom: '2.5rem', gap: '1rem' }}>
                         <h2 style={{ fontWeight: 900, margin: 0 }}>Enrollment Cycles</h2>
-                        {years.length === 0 ? (
-                            <button className="btn btn-primary" onClick={() => { setEditingFYId(null); setNewFY({ name: '2026-2027', maxChildren: 2, maxParents: 4, deadline: '', enabled: true, policies: [] }); setShowFYModal(true); }}><Plus size={18} /> New Session</button>
-                        ) : (
-                            <div style={{ padding: '0.6rem 1.2rem', background: 'var(--primary-glow)', border: '2px solid var(--primary)', color: 'var(--primary)', fontWeight: 900, fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '1.2px', textAlign: 'center' }}>
-                                SINGLE_PLAN_LOCK_ACTIVE: DISPOSE TO RE-CREATE
-                            </div>
-                        )}
+                        <button className="btn btn-primary" onClick={() => { setEditingFYId(null); setNewFY({ name: '2026-2027', maxChildren: 2, maxParents: 4, deadline: '', enabled: true, policies: [] }); setShowFYModal(true); }}>
+                            <Plus size={18} /> Add New Session
+                        </button>
                     </div>
                     <div className="table-responsive">
                         <table className="data-table">
@@ -222,10 +289,21 @@ const HODDashboard = () => {
                                         <td>{y.policies?.length} Tiers</td>
                                         <td>
                                             <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                {!y.isArchived && (
+                                                    <button className="btn btn-ghost" style={{ padding: '0.4rem', border: '1px solid var(--border-glass)', fontSize: '0.6rem', fontWeight: 900, color: 'var(--primary)' }} onClick={() => {
+                                                        setAlertConfig({
+                                                            title: 'FINALISE SESSION',
+                                                            text: `Formally close ${y.name}? This will reset all active enrollments and move them to history.`,
+                                                            onConfirm: () => archiveYear(y)
+                                                        });
+                                                    }}>
+                                                        ARCHIVE
+                                                    </button>
+                                                )}
                                                 <button className="btn btn-ghost" onClick={() => { setEditingFYId(y.id); setNewFY(y); setShowFYModal(true); }}><Edit size={16} /></button>
                                                 <button className="btn btn-ghost" style={{ color: '#ef4444' }} onClick={() => { 
                                                     setAlertConfig({
-                                                        title: 'X_PERMANENT_DISPOSAL',
+                                                        title: 'Permanent Deletion',
                                                         type: 'danger',
                                                         text: 'Purge institutional financial record for this cycle? This action cannot be undone.',
                                                         onConfirm: async () => await deleteDoc(doc(db,"financialYears", y.id))
@@ -244,20 +322,51 @@ const HODDashboard = () => {
             {activeTab === 'registry' && (
                 <div className="glass-panel" style={{ padding: '2rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2.5rem', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-                        <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '350px', maxWidth: '800px', alignItems: 'center' }}>
-                            <div style={{ position: 'relative', flex: 1 }}>
-                                <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', zIndex: 5 }} />
-                                <input className="glass-panel" style={{ width: '100%', padding: '0.8rem 1rem 0.8rem 3.5rem', fontWeight: 700, fontSize: '0.85rem' }} placeholder="Filter registry records..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                        <div style={{ flex: 1, minWidth: '400px', maxWidth: '800px', position: 'relative' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                <div style={{ position: 'relative', flex: 1 }}>
+                                    <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', zIndex: 5 }} />
+                                    <input className="glass-panel" style={{ width: '100%', padding: '1rem 1rem 1rem 3.5rem', fontWeight: 700, fontSize: '0.9rem' }} placeholder="Search registry..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                </div>
+                                <button 
+                                    className={`btn ${isFilterOpen ? 'btn-primary' : 'btn-ghost'}`} 
+                                    style={{ padding: '1rem', border: '1px solid var(--border-glass)' }}
+                                    onClick={() => setIsFilterOpen(!isFilterOpen)}
+                                >
+                                    <Settings size={20} />
+                                </button>
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                <label style={{ fontSize: '0.55rem', fontWeight: 900, color: 'var(--primary)', letterSpacing: '1px' }}>FILTER_DOJ</label>
-                                <input type="date" className="glass-panel" style={{ padding: '0.6rem 1rem', height: '100%', color: 'white', fontSize: '0.8rem' }} value={dojFilter} onChange={e => setDojFilter(e.target.value)} />
+
+                            {/* --- FILTER POPOVER --- */}
+                            {isFilterOpen && (
+                                <div className="filter-popover" style={{ width: '360px' }}>
+                                    <div style={{ marginBottom: '1.5rem' }}>
+                                        <span className="filter-section-title">TIME FRAME</span>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginTop: '0.8rem' }}>
+                                            <select className="glass-panel" style={{ padding: '0.8rem', fontSize: '0.85rem', fontWeight: 700, color: 'white' }} value={yearFilter} onChange={e => setYearFilter(e.target.value)}>
+                                                <option value="">Year</option>
+                                                {[2022,2023,2024,2025,2026,2027].map(y => <option key={y} value={y.toString()}>{y}</option>)}
+                                            </select>
+                                            <select className="glass-panel" style={{ padding: '0.8rem', fontSize: '0.85rem', fontWeight: 700, color: 'white' }} value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
+                                                <option value="">Month</option>
+                                                {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m => <option key={m} value={m}>{new Date(2000, parseInt(m)-1).toLocaleString('default', { month: 'short' })}</option>)}
+                                            </select>
+                                        </div>
+                                        <div style={{ position: 'relative', marginTop: '0.8rem' }}>
+                                            <input type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem', color: 'white', fontSize: '0.85rem', fontWeight: 700 }} value={dojFilter} onChange={e => setDojFilter(e.target.value)} />
+                                        </div>
+                                    </div>
+
+                                    <button className="btn btn-ghost" style={{ width: '100%', color: '#ef4444', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900, border: '1px solid var(--border-glass)', padding: '0.8rem' }} onClick={() => { setYearFilter(""); setMonthFilter(""); setDojFilter(""); setIsFilterOpen(false); }}>CLEAR ALL FILTERS</button>
+                                </div>
+                            )}
+
+                            {/* --- ACTIVE CHIPS --- */}
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '1rem' }}>
+                                {yearFilter && <div className="filter-pill" onClick={() => setYearFilter("")}>Year: {yearFilter} <X size={12} className="close-icon" /></div>}
+                                {monthFilter && <div className="filter-pill" onClick={() => setMonthFilter("")}>Month: {new Date(2000, parseInt(monthFilter)-1).toLocaleString('default', { month: 'short' })} <X size={12} className="close-icon" /></div>}
+                                {dojFilter && <div className="filter-pill" onClick={() => setDojFilter("")}>Date: {dojFilter} <X size={12} className="close-icon" /></div>}
                             </div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                                <input type="checkbox" checked={showDisabled} onChange={e => setShowDisabled(e.target.checked)} />
-                                SHOW_DISABLED
-                            </label>
-                            {dojFilter && <button className="btn btn-ghost" style={{ alignSelf: 'flex-end', padding: '0.8rem' }} onClick={() => setDojFilter("")}>CLEAR</button>}
                         </div>
                         <button className="btn btn-primary" onClick={exportExcel} style={{ padding: '0.8rem 2rem' }}><Download size={18} /> Export Master Excel</button>
                     </div>
@@ -285,13 +394,16 @@ const HODDashboard = () => {
                                         s.phone?.toLowerCase().includes(q) ||
                                         s.doj?.toLowerCase().includes(q);
                                     
-                                    const matchesDate = !dojFilter || s.doj === dojFilter;
-                                    const userStatus = faculty.find(f => f.email === s.email)?.status;
-                                    const matchesStatus = showDisabled || userStatus !== 'disabled';
+                                     const matchesDate = !dojFilter || s.doj === dojFilter;
+                                     const matchesYear = !yearFilter || s.doj?.startsWith(yearFilter);
+                                     const matchesMonth = !monthFilter || s.doj?.includes(`-${monthFilter}-`);
+                                     const isNotArchived = !s.archived;
 
-                                    return matchesSearch && matchesDate && matchesStatus;
-                                }).map(s => (
-                                    <tr key={s.id}>
+                                     return matchesSearch && matchesDate && matchesYear && matchesMonth && isNotArchived;
+                                 }).map(s => {
+                                    const uStatus = faculty.find(f => f.email === s.email)?.status;
+                                    return (
+                                        <tr key={s.id} style={{ opacity: uStatus === 'disabled' ? 0.4 : 1 }}>
                                         <td style={{ fontWeight: 900 }}>
                                             {s.userName}
                                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{s.email}</div>
@@ -309,15 +421,16 @@ const HODDashboard = () => {
                                         <td style={{ fontWeight: 900, color: 'var(--primary)' }}>₹{s.premium?.toLocaleString()}</td>
                                         <td><button className="btn btn-ghost" style={{ color: '#ef4444' }} onClick={() => { 
                                             setAlertConfig({
-                                                title: 'X_DELETE_ENTRY',
+                                                title: 'Confirm Deletion',
                                                 type: 'danger',
                                                 text: 'Permanently remove this faculty enrollment record from the registry?',
                                                 onConfirm: async () => await deleteDoc(doc(db,"submissions", s.id))
                                             });
                                         }}><Trash2 size={16} /></button></td>
                                     </tr>
-                                ))}
-                            </tbody>
+                                        );
+                                    })}
+                                </tbody>
                         </table>
                     </div>
                 </div>
@@ -329,8 +442,9 @@ const HODDashboard = () => {
                         <div style={{ marginBottom: '2rem' }}>
                             <h2 style={{ fontWeight: 900 }}>Bulk Controls</h2>
                             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Manage multiple accounts or register new ones at once</p>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 900, marginBottom: '0.5rem', opacity: 0.8 }}>FORMAT: Name, Department, Institutional_Email (One per line)</div>
                         </div>
-                        <textarea className="glass-panel" style={{ width: '100%', height: '240px', padding: '1.2rem', fontWeight: 700, fontSize: '0.8rem', resize: 'none' }} value={bulkData} onChange={e => setBulkData(e.target.value)} placeholder="Paste List: Name, Dept, Email" />
+                        <textarea className="glass-panel" style={{ width: '100%', height: '240px', padding: '1.2rem', fontWeight: 700, fontSize: '0.8rem', resize: 'none' }} value={bulkData} onChange={e => setBulkData(e.target.value)} placeholder="e.g. Jude, Engineering, jude@college.edu" />
                         
                         {(isBulkProcessing || bulkProgress > 0) && (
                             <div style={{ marginTop: '1.5rem', background: 'rgba(255,255,255,0.05)', height: '40px', border: '2px solid var(--border-glass)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -341,7 +455,7 @@ const HODDashboard = () => {
                                     opacity: 0.3
                                 }} />
                                 <span style={{ zIndex: 10, fontSize: '0.75rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '1px' }}>
-                                    {isBulkProcessing ? `UPDATING: ${Math.round(bulkProgress)}%` : 'TASKS FINISHED'}
+                                    {isBulkProcessing ? `PROCESSING: ${Math.round(bulkProgress)}%` : 'FINISHED'}
                                 </span>
                             </div>
                         )}
@@ -350,7 +464,7 @@ const HODDashboard = () => {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                                 <button className="btn btn-primary" onClick={() => {
                                     const names = bulkData.split("\n").filter(r => r.trim().length > 5);
-                                    if(names.length === 0) return setAlertConfig({ title: 'EMPTY_LIST', text: 'Enter some details to mass disable accounts.' });
+                                    if(names.length === 0) return setAlertConfig({ title: 'LIST IS EMPTY', text: 'Enter some details to mass disable accounts.' });
                                     setAlertConfig({
                                         title: 'CONFIRM MASS DISABLE',
                                         type: 'danger',
@@ -400,48 +514,116 @@ const HODDashboard = () => {
                             </div>
                             <button className="btn btn-primary" onClick={() => {
                                 const rows = bulkData.split("\n").filter(r => r.trim().includes(","));
-                                if(rows.length === 0) return setAlertConfig({ title: 'MALFORMED_LIST', text: 'Bulk registration requires "Name, Dept, Email" formatted records.' });
+                                if(rows.length === 0) return setAlertConfig({ title: 'INVALID FORMATTING', text: 'Bulk registration requires "Name, Dept, Email" formatted records.' });
                                 setAlertConfig({
                                     title: 'REGISTER NEW ACCOUNTS',
                                     text: `Register ${rows.length} new people? This will create their login accounts.`,
                                     onConfirm: async () => {
+                                try {
+                                    setIsBulkProcessing(true); setBulkProgress(0);
+                                    let count = 0;
+                                    let success = 0;
+                                    let skipped = 0;
+                                    let errors = 0;
+                                    
+                                    for (const row of rows) {
+                                        const parts = row.split(",").map(s => s.trim());
+                                        if (parts.length < 3) { skipped++; continue; }
+                                        const [name, dept, email] = parts;
+                                        
                                         try {
-                                            setIsBulkProcessing(true); setBulkProgress(0);
-                                            let count = 0;
-                                            for (const row of rows) {
-                                                const [name, dept, email] = row.split(",").map(s => s.trim());
-                                                try {
-                                                    const cred = await createUserWithEmailAndPassword(recruiterAuth, email, email);
-                                                    await setDoc(doc(db, "users", cred.user.uid), { name, email, role: "faculty", department: dept || "GEN", status: 'active', createdAt: serverTimestamp() });
-                                                } catch(e) {}
-                                                count++;
-                                                setBulkProgress(Math.min(100, (count / rows.length) * 100));
-                                            }
-                                            setBulkData("");
-                                            setAlertConfig({ title: 'DONE', text: 'All accounts registered successfully.' });
+                                            const cred = await createUserWithEmailAndPassword(recruiterAuth, email, email);
+                                            await setDoc(doc(db, "users", cred.user.uid), { name, email, role: "faculty", department: dept || "GEN", status: 'active', createdAt: serverTimestamp() });
+                                            success++;
                                         } catch(e) {
-                                            setAlertConfig({ title: 'ERROR', type: 'danger', text: 'Something went wrong during registration.' });
-                                        } finally { setIsBulkProcessing(false); }
+                                            if (e.code === 'auth/email-already-in-use') skipped++;
+                                            else errors++;
+                                            console.error(`Error for ${email}:`, e);
+                                        }
+                                        count++;
+                                        setBulkProgress(Math.min(100, (count / rows.length) * 100));
                                     }
-                                });
-                            }} style={{ justifyContent: 'center' }}>Register Accounts</button>
+                                    setBulkData("");
+                                    setAlertConfig({ 
+                                        title: 'REGISTRATION SUMMARY', 
+                                        text: `Process finished: ${success} Registered, ${skipped} Already Exist/Invalid, ${errors} Processing Errors.` 
+                                    });
+                                } catch(e) {
+                                    setAlertConfig({ title: 'ENGINE ERROR', type: 'danger', text: 'The registration engine encountered a critical failure.' });
+                                } finally { setIsBulkProcessing(false); }
+                            }
+                        });
+                    }} style={{ justifyContent: 'center' }}>Register Accounts</button>
                         </div>
                     </div>
 
                     <div className="glass-panel" style={{ padding: '2.5rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2.5rem', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem' }}>
                             <h3 style={{ fontWeight: 900 }}>Active Personnel Registry</h3>
-                            <div style={{ position: 'relative', width: '100%', maxWidth: '350px' }}>
-                                <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', zIndex: 5 }} />
-                                <input className="glass-panel" style={{ width: '100%', padding: '0.9rem 1rem 0.9rem 3.5rem', fontSize: '0.75rem', fontWeight: 700 }} placeholder="Filter active faculty accounts..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                            <div style={{ flex: 1, maxWidth: '450px', position: 'relative' }}>
+                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                    <div style={{ position: 'relative', flex: 1 }}>
+                                        <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', zIndex: 5 }} />
+                                        <input className="glass-panel" style={{ width: '100%', padding: '0.75rem 0.75rem 0.75rem 2.8rem', fontSize: '0.75rem', fontWeight: 700 }} placeholder="Search name or email..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                                    </div>
+                                    <button 
+                                        className={`btn ${isFilterOpen ? 'btn-primary' : 'btn-ghost'}`} 
+                                        style={{ padding: '0.75rem', border: '1px solid var(--border-glass)' }}
+                                        onClick={() => setIsFilterOpen(!isFilterOpen)}
+                                    >
+                                        <Settings size={18} />
+                                    </button>
+                                </div>
+                                {isFilterOpen && (
+                                    <div className="filter-popover" style={{ width: '360px' }}>
+                                        <div style={{ marginBottom: '1.5rem' }}>
+                                            <span className="filter-section-title">TIME FRAME</span>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginTop: '0.8rem' }}>
+                                                <select className="glass-panel" style={{ padding: '0.8rem', fontSize: '0.85rem', fontWeight: 700, color: 'white' }} value={yearFilter} onChange={e => setYearFilter(e.target.value)}>
+                                                    <option value="">Year</option>
+                                                    {[2022,2023,2024,2025,2026,2027].map(y => <option key={y} value={y.toString()}>{y}</option>)}
+                                                </select>
+                                                <select className="glass-panel" style={{ padding: '0.8rem', fontSize: '0.85rem', fontWeight: 700, color: 'white' }} value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
+                                                    <option value="">Month</option>
+                                                    {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m => <option key={m} value={m}>{new Date(2000, parseInt(m)-1).toLocaleString('default', { month: 'short' })}</option>)}
+                                                </select>
+                                            </div>
+                                            <div style={{ position: 'relative', marginTop: '0.8rem' }}>
+                                                <input type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem', color: 'white', fontSize: '0.85rem', fontWeight: 700 }} value={dojFilter} onChange={e => setDojFilter(e.target.value)} />
+                                            </div>
+                                        </div>
+
+                                        <button className="btn btn-ghost" style={{ width: '100%', color: '#ef4444', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900, border: '1px solid var(--border-glass)', padding: '0.8rem' }} onClick={() => { setYearFilter(""); setMonthFilter(""); setDojFilter(""); setIsFilterOpen(false); }}>CLEAR ALL FILTERS</button>
+                                    </div>
+                                )}
                             </div>
                         </div>
+
+                        {selectedIds.length > 0 && (
+                            <div className="glass-panel" style={{ padding: '1rem 2rem', marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--primary-glow)', border: '1px solid var(--primary)' }}>
+                                <span style={{ fontWeight: 900, fontSize: '0.8rem' }}>{selectedIds.length} ACCOUNTS SELECTED</span>
+                                <div style={{ display: 'flex', gap: '1rem' }}>
+                                    <button className="btn btn-primary" style={{ padding: '0.6rem 1rem', fontSize: '0.7rem' }} onClick={() => handleBulkStatus('active')} disabled={isProcessingBulk}>Enable All</button>
+                                    <button className="btn btn-ghost" style={{ padding: '0.6rem 1rem', fontSize: '0.7rem' }} onClick={() => handleBulkStatus('disabled')} disabled={isProcessingBulk}>Disable All</button>
+                                    <button className="btn btn-ghost" style={{ padding: '0.6rem 1rem', fontSize: '0.7rem', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }} onClick={handleBulkDelete} disabled={isProcessingBulk}>Delete All</button>
+                                    <button className="btn btn-ghost" style={{ padding: '0.6rem', border: 'none' }} onClick={() => setSelectedIds([])}><X size={15} /></button>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="table-responsive">
                             <table className="data-table">
-                                <thead><tr><th>Faculty Member</th><th>Institutional Email</th><th>Actions</th></tr></thead>
+                                <thead><tr><th style={{ width: '40px' }}><input type="checkbox" checked={selectedIds.length > 0 && selectedIds.length === faculty.length} onChange={(e) => { if(e.target.checked) setSelectedIds(faculty.map(f => f.id)); else setSelectedIds([]); }} /></th><th>Faculty Member</th><th>Institutional Email</th><th>Actions</th></tr></thead>
                                 <tbody>
-                                    {faculty.filter(f => f.name?.toLowerCase().includes(facultySearch.toLowerCase()) || f.email?.toLowerCase().includes(facultySearch.toLowerCase())).map(f => (
-                                        <tr key={f.id} style={{ opacity: f.status === 'disabled' ? 0.5 : 1 }}>
+                                    {faculty.filter(f => {
+                                        const matchesSearch = f.name?.toLowerCase().includes(facultySearch.toLowerCase()) || f.email?.toLowerCase().includes(facultySearch.toLowerCase());
+                                        const matchesDate = !dojFilter || f.doj === dojFilter;
+                                        const matchesYear = !yearFilter || f.doj?.startsWith(yearFilter);
+                                        const matchesMonth = !monthFilter || f.doj?.includes(`-${monthFilter}-`);
+                                        return matchesSearch && matchesDate && matchesYear && matchesMonth;
+                                    }).map(f => (
+                                        <tr key={f.id} style={{ opacity: f.status === 'disabled' ? 0.4 : 1, transition: 'opacity 0.3s ease' }}>
+                                            <td><input type="checkbox" checked={selectedIds.includes(f.id)} onChange={() => { if(selectedIds.includes(f.id)) setSelectedIds(selectedIds.filter(id => id !== f.id)); else setSelectedIds([...selectedIds, f.id]); }} /></td>
                                             <td style={{ fontWeight: 900 }}>
                                                 {f.name}
                                                 <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.2rem' }}>
@@ -451,14 +633,18 @@ const HODDashboard = () => {
                                             </td>
                                             <td style={{ fontSize: '0.8rem', opacity: 0.7 }}>{f.email}</td>
                                             <td>
-                                                <div 
-                                                    className={`boxy-toggle-container ${f.status === 'disabled' ? 'disabled' : 'active'}`}
-                                                    onClick={async () => {
-                                                        const ns = f.status === 'disabled' ? 'active' : 'disabled';
-                                                        await updateDoc(doc(db, "users", f.id), { status: ns });
-                                                    }}
-                                                >
-                                                    <div className="boxy-toggle-handle"></div>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <label className="inst-switch" style={{ transform: 'scale(0.8)' }}>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={f.status !== 'disabled'} 
+                                                            onChange={async () => {
+                                                                const ns = f.status === 'disabled' ? 'active' : 'disabled';
+                                                                await updateDoc(doc(db, "users", f.id), { status: ns });
+                                                            }} 
+                                                        />
+                                                        <span className="inst-slider"></span>
+                                                    </label>
                                                 </div>
                                             </td>
                                         </tr>
@@ -475,15 +661,42 @@ const HODDashboard = () => {
                         <h2 style={{ fontWeight: 900 }}>Password Reset Hub</h2>
                         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Send password reset links to any faculty member</p>
                     </div>
-                    <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '350px', maxWidth: '700px', alignItems: 'center' }}>
-                        <div style={{ position: 'relative', flex: 1 }}>
-                            <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                            <input className="glass-panel" style={{ width: '100%', padding: '0.8rem 1rem 0.8rem 3.5rem', fontSize: '0.8rem' }} placeholder="Search faculty email..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                    <div style={{ flex: 1, maxWidth: '600px', position: 'relative' }}>
+                        <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
+                            <div style={{ position: 'relative', flex: 1 }}>
+                                <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                                <input className="glass-panel" style={{ width: '100%', padding: '0.9rem 1rem 0.9rem 3.5rem', fontSize: '0.85rem', fontWeight: 700 }} placeholder="Search Personnel..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
+                            </div>
+                            <button 
+                                className={`btn ${isFilterOpen ? 'btn-primary' : 'btn-ghost'}`} 
+                                style={{ padding: '0.8rem', border: '1px solid var(--border-glass)' }}
+                                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                            >
+                                <Settings size={18} />
+                            </button>
                         </div>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                            <input type="checkbox" checked={showDisabled} onChange={e => setShowDisabled(e.target.checked)} />
-                            SHOW_DISABLED
-                        </label>
+                        {isFilterOpen && (
+                            <div className="filter-popover" style={{ width: '360px' }}>
+                                <div style={{ marginBottom: '1.5rem' }}>
+                                    <span className="filter-section-title">TIME FRAME</span>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginTop: '0.8rem' }}>
+                                        <select className="glass-panel" style={{ padding: '0.8rem', fontSize: '0.85rem', fontWeight: 700, color: 'white' }} value={yearFilter} onChange={e => setYearFilter(e.target.value)}>
+                                            <option value="">Year</option>
+                                            {[2022,2023,2024,2025,2026,2027].map(y => <option key={y} value={y.toString()}>{y}</option>)}
+                                        </select>
+                                        <select className="glass-panel" style={{ padding: '0.8rem', fontSize: '0.85rem', fontWeight: 700, color: 'white' }} value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
+                                            <option value="">Month</option>
+                                            {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m => <option key={m} value={m}>{new Date(2000, parseInt(m)-1).toLocaleString('default', { month: 'short' })}</option>)}
+                                        </select>
+                                    </div>
+                                    <div style={{ position: 'relative', marginTop: '0.8rem' }}>
+                                        <input type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem', color: 'white', fontSize: '0.85rem', fontWeight: 700 }} value={dojFilter} onChange={e => setDojFilter(e.target.value)} />
+                                    </div>
+                                </div>
+
+                                <button className="btn btn-ghost" style={{ width: '100%', color: '#ef4444', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900, border: '1px solid var(--border-glass)', padding: '0.8rem' }} onClick={() => { setYearFilter(""); setMonthFilter(""); setDojFilter(""); setIsFilterOpen(false); }}>CLEAR ALL FILTERS</button>
+                            </div>
+                        )}
                     </div>
                     <div className="table-responsive">
                         <table className="data-table">
@@ -491,19 +704,21 @@ const HODDashboard = () => {
                             <tbody>
                                 {faculty.filter(f => {
                                     const q = facultySearch.toLowerCase();
-                                    const matchesSearch = f.email?.toLowerCase().includes(q) || f.name?.toLowerCase().includes(q);
-                                    const matchesStatus = showDisabled || f.status !== 'disabled';
-                                    return matchesSearch && matchesStatus;
+                                    const matchesSearch = f.name?.toLowerCase().includes(q) || f.email?.toLowerCase().includes(q);
+                                    const matchesDate = !dojFilter || f.doj === dojFilter;
+                                    const matchesYear = !yearFilter || f.doj?.startsWith(yearFilter);
+                                    const matchesMonth = !monthFilter || f.doj?.includes(`-${monthFilter}-`);
+                                    return matchesSearch && matchesDate && matchesYear && matchesMonth;
                                 }).map(f => (
                                     <tr key={f.id}>
                                         <td style={{ fontWeight: 900 }}>{f.name}</td>
                                         <td>{f.email}</td>
-                                        <td>
-                                            <button className="btn btn-ghost" style={{ color: 'var(--primary)', border: '2px solid var(--primary)', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1.2rem' }} onClick={() => {
+                                         <td>
+                                            <button className="btn btn-ghost" style={{ color: 'var(--primary)', border: '2px solid var(--primary)', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 1rem', fontSize: '0.7rem' }} onClick={() => {
                                                 setSelectedUserToReset(f);
                                                 setManualPass({ next: '', confirm: '' });
                                             }}>
-                                                <Key size={16} /> RESET PASSWORD
+                                                <Key size={14} /> Reset Password
                                             </button>
                                         </td>
                                     </tr>
@@ -514,19 +729,108 @@ const HODDashboard = () => {
                 </div>
             )}
 
+            {activeTab === 'archives' && (
+                <div className="glass-panel" style={{ padding: '3rem' }}>
+                    <div style={{ marginBottom: '3.5rem' }}>
+                        <h2 style={{ fontSize: '2.5rem', fontWeight: 900 }}>Audit Archives</h2>
+                        <p style={{ color: 'var(--text-muted)', fontWeight: 700 }}>Legacy enrollment reports and historical institutional data.</p>
+                    </div>
+                    
+                    {years.filter(y => y.isArchived).length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '5rem', opacity: 0.5 }}>
+                            <Archive size={60} style={{ marginBottom: '1.5rem' }} />
+                            <h3 style={{ fontWeight: 900 }}>Database Archive Empty</h3>
+                            <p style={{ fontSize: '0.8rem' }}>No financial cycles have been finalized and archived yet.</p>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            {years.filter(y => y.isArchived).map(y => (
+                                <div key={y.id} className="glass-panel" style={{ 
+                                    padding: '1.2rem 2.5rem', 
+                                    border: '2px solid var(--border-glass)', 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    justifyContent: 'space-between',
+                                    transition: 'transform 0.2s ease',
+                                    background: 'rgba(255,255,255,0.01)'
+                                }} onMouseEnter={e => e.currentTarget.style.transform = 'translateX(10px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateX(0)'}>
+                                    
+                                    <div style={{ display: 'flex', gap: '4rem', alignItems: 'center' }}>
+                                        <div style={{ minWidth: '120px' }}>
+                                            <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--primary)', letterSpacing: '2px' }}>YEAR</div>
+                                            <div style={{ fontSize: '1.4rem', fontWeight: 900 }}>FY {y.name}</div>
+                                        </div>
+                                        
+                                        <div>
+                                            <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--text-muted)' }}>ARCHIVED_DATE</div>
+                                            <div style={{ fontWeight: 900, fontSize: '0.9rem' }}>{y.archivedAt?.toDate().toLocaleDateString() || 'N/A'}</div>
+                                        </div>
+
+                                        <div style={{ padding: '0.4rem 1rem', border: '1px solid var(--border-glass)', fontSize: '0.6rem', fontWeight: 900, color: '#22c55e', background: 'rgba(34,197,94,0.05)' }}>
+                                            DATA_SAVED
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '0.8rem' }}>
+                                        <button className="btn btn-primary" style={{ padding: '0.6rem 1.5rem', fontSize: '0.7rem' }} onClick={() => {
+                                            const archivalH = "Name,EmpId,Email,Coverage,Premium,Lives\n";
+                                            const archivalB = submissions.filter(s => s.fyId === y.id).map(s => 
+                                                `"${s.userName}","${s.empId}","${s.email}","${s.coverageId}","${s.premium}","${(s.dependents?.length || 0) + 1}"`
+                                            ).join("\n");
+                                            const blob = new Blob([archivalH + archivalB], { type: 'text/csv' });
+                                            const url = URL.createObjectURL(blob);
+                                            const a = document.createElement('a'); a.href = url; a.download = `Institutional_Report_${y.name}.csv`; a.click();
+                                        }}>
+                                            <Download size={15} /> GET_REPORT
+                                        </button>
+
+                                        <button className="btn btn-ghost" style={{ border: '1px solid var(--primary)', color: 'var(--primary)', padding: '0.6rem 1.5rem', fontSize: '0.7rem' }} onClick={() => {
+                                            setAlertConfig({
+                                                title: 'RESTORE YEAR',
+                                                text: `Re-activate ${y.name}? All previously archived data will return to the active registry for editing.`,
+                                                onConfirm: () => unarchiveYear(y)
+                                            });
+                                        }}>
+                                            <RotateCcw size={15} /> RESTORE
+                                        </button>
+
+                                        <button className="btn btn-ghost" style={{ color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', padding: '0.6rem 1.2rem', fontSize: '0.7rem' }} onClick={() => {
+                                            setAlertConfig({
+                                                title: 'PERMANENT DELETE',
+                                                type: 'danger',
+                                                text: `Permanently delete all historical records for ${y.name}? This action cannot be undone.`,
+                                                onConfirm: async () => await deleteDoc(doc(db, "financialYears", y.id))
+                                            });
+                                        }}>
+                                            <Trash2 size={15} /> DELETE FOREVER
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
+
+
+            <div style={{ marginTop: '5rem', borderTop: '2px solid var(--border-glass)', paddingTop: '2rem', textAlign: 'center', opacity: 0.5 }}>
+                <p style={{ fontSize: '0.65rem', fontWeight: 900, letterSpacing: '2px' }}>MEDICLAIM_INSTITUTIONAL_ADMIN_V2.5</p>
+            </div>
+
             {selectedUserToReset && (
                 <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(20px)' }}>
-                    <div className="glass-panel" style={{ width: '90%', maxWidth: '500px', padding: '2.5rem' }}>
+                     <div className="glass-panel" style={{ width: '90%', maxWidth: '500px', padding: '2.5rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2.5rem', alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                                 <Key size={24} color="var(--primary)" />
-                                <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1rem', letterSpacing: '1px' }}>Access PIN Change</h2>
+                                <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1rem', letterSpacing: '1px' }}>Security Settings</h2>
                             </div>
                             <button className="btn btn-ghost" onClick={() => setSelectedUserToReset(null)}><X /></button>
                         </div>
 
                         <div style={{ marginBottom: '2rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '1rem' }}>
-                            <p style={{ fontSize: '0.6rem', opacity: 0.6, fontWeight: 900, marginBottom: '0.3rem' }}>USER_TARGET</p>
+                            <p style={{ fontSize: '0.6rem', opacity: 0.6, fontWeight: 900, marginBottom: '0.3rem' }}>Target User</p>
                             <div style={{ fontWeight: 900, fontSize: '1rem', color: 'var(--primary)' }}>{selectedUserToReset.name}</div>
                             <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>{selectedUserToReset.email}</div>
                         </div>
@@ -546,29 +850,29 @@ const HODDashboard = () => {
                                     value={manualPass.confirm} onChange={e => setManualPass({...manualPass, confirm: e.target.value})}
                                 />
                             </div>
-
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 800 }}>
-                                <input type="checkbox" checked={showManualPass} onChange={e => setShowManualPass(e.target.checked)} style={{ width: '18px', height: '18px' }} />
-                                Show Password
-                            </label>
-
-                            <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '1.25rem', marginTop: '1rem' }} onClick={() => {
-                                if (manualPass.next !== manualPass.confirm) return alert("PROTOCOL_MISMATCH: Passwords do not match.");
-                                if (manualPass.next.length < 6) return alert("SECURITY_VIOLATION: Minimum 6 characters required.");
-                                
-                                // Sync override to registry
-                                const userRef = doc(db, "users", selectedUserToReset.id);
-                                alert("UPDATING_REGISTRY: Please wait...");
-                                setDoc(userRef, { passwordOverwrite: manualPass.next }, { merge: true }).then(() => {
-                                    setAlertConfig({
-                                        title: 'ACCESS_REVOLVED',
-                                        text: `Password for ${selectedUserToReset.name} has been manually updated. They can now login with this PIN.`,
-                                        onConfirm: () => setSelectedUserToReset(null)
-                                    });
-                                }).catch(e => alert("WRITE_DENIED: Registry override failed."));
-                            }}>
-                                UPDATE PASSWORD
-                            </button>
+                             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'rgba(255,255,255,0.02)', padding: '0.6rem 1rem', border: '1px solid var(--border-glass)' }}>
+                                 <label className="inst-switch">
+                                     <input type="checkbox" checked={showManualPass} onChange={e => setShowManualPass(e.target.checked)} />
+                                     <span className="inst-slider"></span>
+                                 </label>
+                                 <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)' }}>Show Password</span>
+                             </div>                             
+                             <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '1.25rem', marginTop: '1rem' }} onClick={() => {
+                                 if (manualPass.next !== manualPass.confirm) return setAlertConfig({ title: 'Error', text: "Passwords do not match." });
+                                 if (manualPass.next.length < 6) return setAlertConfig({ title: 'Error', text: "Minimum 6 characters required." });
+                                 
+                                 setIsProcessing(true);
+                                 const userRef = doc(db, "users", selectedUserToReset.id);
+                                 updateDoc(userRef, { passwordOverwrite: manualPass.next }).then(() => {
+                                     setAlertConfig({
+                                         title: 'Success',
+                                         text: `Password for ${selectedUserToReset.name} updated.`,
+                                         onConfirm: () => { setSelectedUserToReset(null); setIsProcessing(false); }
+                                     });
+                                 }).catch(e => { setIsProcessing(false); setAlertConfig({ title: 'Error', text: "Request failed." }); });
+                             }}>
+                                 Update Password
+                             </button>
                         </div>
                     </div>
                 </div>
@@ -577,18 +881,18 @@ const HODDashboard = () => {
             {showFYModal && (
                 <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(10px)' }}>
                     <div className="glass-panel" style={{ width: '90%', maxWidth: '600px', padding: '3rem' }}>
-                        <h2 style={{ fontWeight: 900, marginBottom: '2rem' }}>{editingFYId ? 'EDIT_ENROLLMENT_CYCLE' : 'INITIALIZE_NEW_CYCLE'}</h2>
+                        <h2 style={{ fontWeight: 900, marginBottom: '2rem' }}>{editingFYId ? 'Update Enrollment Session' : 'Setup New Enrollment'}</h2>
                         <div style={{ display: 'grid', gap: '1.5rem' }}>
                             <div className="f-group">
-                                <label style={{ fontSize: '0.7rem', fontWeight: 900 }}>CYCLE_NAME</label>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 900 }}>Financial Year Name</label>
                                 <input className="glass-panel" style={{ width: '100%', padding: '0.8rem' }} value={newFY.name} onChange={e => setNewFY({...newFY, name: e.target.value})} placeholder="e.g. 2026-2027" />
                             </div>
                             <div className="f-group">
-                                <label style={{ fontSize: '0.7rem', fontWeight: 900 }}>DEADLINE_DATE</label>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 900 }}>Submission Deadline Date</label>
                                 <input type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem' }} value={newFY.deadline} onChange={e => setNewFY({...newFY, deadline: e.target.value})} />
                             </div>
                             <div style={{ marginTop: '1rem' }}>
-                                <label style={{ fontSize: '0.7rem', fontWeight: 900 }}>POLICY_TIERS</label>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 900 }}>Available Insurance Plans</label>
                                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                                     <input className="glass-panel" style={{ flex: 1, padding: '0.6rem' }} placeholder="Label (5 Lakhs)" value={tempPolicy.label} onChange={e => setTempPolicy({...tempPolicy, label: e.target.value})} />
                                     <input type="number" className="glass-panel" style={{ width: '100px', padding: '0.6rem' }} placeholder="₹" value={tempPolicy.premium} onChange={e => setTempPolicy({...tempPolicy, premium: e.target.value})} />
@@ -606,7 +910,7 @@ const HODDashboard = () => {
                         </div>
                         <div style={{ marginTop: '3rem', display: 'flex', gap: '1rem', justifyContent: 'center' }}>
                             <button className="btn btn-ghost" onClick={() => setShowFYModal(false)}>CANCEL</button>
-                            <button className="btn btn-primary" onClick={saveFY} disabled={isSavingFY}>{isSavingFY ? 'SAVING...' : 'SAVE_CYCLE'}</button>
+                            <button className="btn btn-primary" onClick={saveFY} disabled={isSavingFY}>{isSavingFY ? 'SAVING...' : 'Save Settings'}</button>
                         </div>
                     </div>
                 </div>

@@ -10,6 +10,8 @@ import History from './pages/History';
 import Settings from './pages/Settings';
 import { ShieldCheck, X } from 'lucide-react';
 
+import logo from './assets/logo.png';
+
 const InstallPrompt = () => {
   const [deferredPrompt, setDeferredPrompt] = React.useState(null);
   const [visible, setVisible] = React.useState(false);
@@ -41,7 +43,7 @@ const InstallPrompt = () => {
       background: 'rgba(10,10,10,0.9)', backdropFilter: 'blur(20px)'
     }}>
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-        <img src="/logo.png" style={{ width: '40px', height: '40px', objectFit: 'contain' }} alt="L" />
+        <img src={logo} style={{ width: '40px', height: '40px', objectFit: 'contain' }} alt="MEDICLAIM_LOGO" />
         <div>
           <div style={{ fontWeight: 900, fontSize: '0.9rem' }}>Install App</div>
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Add to home screen for better experience</div>
@@ -62,7 +64,7 @@ const Protected = ({ children, role }) => {
         <div style={{ width: '80px', height: '80px', background: 'var(--primary)', boxShadow: '0 0 50px var(--primary-glow)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse 2s infinite' }}>
             <ShieldCheck size={40} color="white" />
         </div>
-        <div style={{ letterSpacing: '2px', fontSize: '0.8rem', fontWeight: 900, color: 'var(--text-muted)' }}>[ SECURITY_PROTOCOL_VERIFYING ]</div>
+        <div style={{ letterSpacing: '1px', fontSize: '0.9rem', fontWeight: 900, color: 'var(--text-muted)' }}>Verifying Security...</div>
     </div>
   );
   if (!user) return <Navigate to="/login" />;

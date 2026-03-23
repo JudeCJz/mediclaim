@@ -1,25 +1,22 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, onSnapshot, query, where } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, onSnapshot, query, where, getDocs } from 'firebase/firestore';
 
 const AppContext = createContext();
 
-// VIP Accounts: Fast-track to Dashboard instantly
+// VIP Accounts: Fast-track to Dashboard instantly (Simplified for Fresh Start)
 const VIP_ACCOUNTS = {
-  'admin@hr.com': { role: 'admin', name: 'HR Administrator', department: 'HR', empId: 'HR001' },
-  'principal@college.com': { role: 'principal', name: 'Dr. Principal', department: 'Management', empId: 'MGMT001' },
-  'hod@it.com': { role: 'hod', name: 'HOD (IT Dept)', department: 'Information Technology', empId: 'HOD001' }
+  'hod@college.edu': { role: 'hod', name: 'Authorized HOD', department: 'Mediclaim Administration', empId: 'HOD888', status: 'active' },
+  'tfaculty@college.edu': { role: 'faculty', name: 'Test Faculty', department: 'Mediclaim System', empId: 'FAC888', status: 'active' }
 };
 
-// DEMO DATA: Ensuring the HOD sees something even if Firebase is unconfigured
+// DEMO DATA: Simplified as requested
 const DEMO_FACULTY = [
-  { id: 'f1', email: 'faculty.one@it.com', name: 'Alice Walker', department: 'Information Technology', empId: 'FAC101', role: 'faculty' },
-  { id: 'f2', email: 'faculty.two@it.com', name: 'Bob Smith', department: 'Information Technology', empId: 'FAC102', role: 'faculty' },
-  { id: 'f3', email: 'stella@it.com', name: 'Stella Greene', department: 'Information Technology', empId: 'FAC103', role: 'faculty' }
+  { id: 'tf1', email: 'tfaculty@college.edu', name: 'Test Faculty', department: 'Institution', empId: 'FAC888', role: 'faculty' }
 ];
 
-const DEMO_FY = { 
+const DEMO_FY = {
   id: '2025_26', name: '2025-26', enabled: true, maxChildren: 2,
   policies: [
     { id: 'p1', label: 'Silver', premium: 4500, coverage: '1.5 Lakh' },
@@ -63,10 +60,10 @@ export const AppProvider = ({ children }) => {
           if (userSnap.exists()) {
             const userData = userSnap.data();
             if (userData.status === 'disabled') {
-                await signOut(auth);
-                setUser(null);
+              await signOut(auth);
+              setUser(null);
             } else {
-                setUser({ email: firebaseUser.email, uid: firebaseUser.uid, ...userData });
+              setUser({ email: firebaseUser.email, uid: firebaseUser.uid, ...userData });
             }
           } else if (VIP_ACCOUNTS[firebaseUser.email]) {
             const vipInfo = VIP_ACCOUNTS[firebaseUser.email];
@@ -80,7 +77,14 @@ export const AppProvider = ({ children }) => {
           setUser(null);
         }
       } else {
-        setUser(null);
+        // Automatically check if we have a persisted local user (simple session)
+        const savedUser = localStorage.getItem('mediclaim_user');
+        if (savedUser) {
+          setUser(JSON.parse(savedUser));
+          setIsDemoMode(true);
+        } else {
+          setUser(null);
+        }
       }
       setLoading(false);
     });
@@ -97,51 +101,31 @@ export const AppProvider = ({ children }) => {
   }, [isDemoMode]);
 
   const login = async (email, password) => {
-    if (email === 'hod@demo.com') { // DEV BACKDOOR
-        const hod = { email: 'hod@it.com', role: 'hod', name: 'Demo HOD', department: 'Information Technology', uid: 'demo_hod_123' };
-        setUser(hod);
-        setIsDemoMode(true);
-        return Promise.resolve();
+    // INSTITUTIONAL LOGS: Strictly allow only the requested accounts for this fresh start
+    if (email === 'hod@college.edu' && password === 'hod@college.edu') {
+      const hod = { ...VIP_ACCOUNTS[email], email, uid: 'local_hod_888' };
+      setUser(hod);
+      setIsDemoMode(true);
+      localStorage.setItem('mediclaim_user', JSON.stringify(hod));
+      return Promise.resolve();
     }
-    try {
-        const cred = await signInWithEmailAndPassword(auth, email, password);
-        const userSnap = await getDoc(doc(db, "users", cred.user.uid));
-        
-        if (userSnap.exists()) {
-            const userData = userSnap.data();
-            if (userData.status === 'disabled') {
-                await signOut(auth);
-                throw new Error("ACCOUNT_LOCKED: Your account is disabled right now.");
-            }
-            setUser({ email: cred.user.email, uid: cred.user.uid, ...userData });
-            return cred;
-        } else if (VIP_ACCOUNTS[cred.user.email]) {
-            const vipInfo = VIP_ACCOUNTS[cred.user.email];
-            setUser({ email: cred.user.email, uid: cred.user.uid, ...vipInfo });
-            await setDoc(doc(db, "users", cred.user.uid), vipInfo, { merge: true });
-            return cred;
-        }
-    } catch (err) {
-        // AUTH FAILED: Initiate Institutional PIN Override Check
-        const q = query(collection(db, "users"), where("email", "==", email));
-        return onSnapshot(q, (snap) => {
-            if (!snap.empty) {
-                const docData = snap.docs[0].data();
-                const userId = snap.docs[0].id;
-                
-                // Check if admin has set a manual password overwrite
-                if (docData.passwordOverwrite === password) {
-                    if (docData.status === 'disabled') throw new Error("ACCOUNT_LOCKED: Access denied.");
-                    setUser({ email, uid: userId, ...docData });
-                    return Promise.resolve();
-                }
-            }
-            throw err; // Re-throw the original Auth error if no override found
-        });
+
+    if (email === 'tfaculty@college.edu' && password === 'tfaculty@college.edu') {
+      const faculty = { ...VIP_ACCOUNTS[email], email, uid: 'local_faculty_888' };
+      setUser(faculty);
+      setIsDemoMode(true);
+      localStorage.setItem('mediclaim_user', JSON.stringify(faculty));
+      return Promise.resolve();
     }
+
+    // Since user requested "ONLY these two logins", we block everything else
+    throw new Error("ACCESS_DENIED: Unauthorized access. Only the institutional HOD and Faculty accounts are active for this deployment.");
   };
 
-  const logout = () => signOut(auth).then(() => setUser(null));
+  const logout = () => {
+    localStorage.removeItem('mediclaim_user');
+    return signOut(auth).then(() => setUser(null));
+  };
 
   const updateProfile = async (updates) => {
     if (!user) return;

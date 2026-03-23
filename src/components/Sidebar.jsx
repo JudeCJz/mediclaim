@@ -3,6 +3,8 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { LayoutDashboard, History, LogOut, Sun, Moon, Compass, ShieldAlert, Menu, X, Settings as SettingsIcon, FileText, Users, Lock, User } from 'lucide-react';
 
+import logo from '../assets/logo.png';
+
 const Sidebar = () => {
   const { user, logout, theme, toggleTheme, activeTab, setActiveTab } = useApp();
   const [isOpen, setIsOpen] = useState(false);
@@ -53,7 +55,7 @@ const Sidebar = () => {
       {/* SIDEBAR */}
       <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
         <div style={{ padding: '2rem 1.5rem', borderBottom: '2px solid var(--border-glass)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.2rem' }}>
-          <img src="/logo.png" style={{ width: '40px', height: '40px', objectFit: 'contain', filter: 'drop-shadow(0 0 10px var(--primary-glow))' }} alt="L" />
+          <img src={logo} style={{ width: '40px', height: '40px', objectFit: 'contain', filter: 'drop-shadow(0 0 10px var(--primary-glow))' }} alt="MEDICLAIM_LOGO" />
           <div style={{ textAlign: 'left' }}>
             <h2 style={{ fontSize: '1.1rem', fontWeight: 900, letterSpacing: '1px', margin: 0, lineHeight: 1 }}>MEDICLAIM</h2>
             <p style={{ color: 'var(--primary)', fontSize: '0.65rem', fontWeight: 900, marginTop: '4px', textTransform: 'uppercase', letterSpacing: '1px' }}>INSTITUTIONAL_PORTAL</p>
@@ -92,21 +94,27 @@ const Sidebar = () => {
               >
                 <Users size={20} /> <span>Faculty Accounts</span>
               </button>
+              <button 
+                onClick={() => handleTabClick('security')} 
+                className={`btn ${(isDashboardBase && activeTab === 'security') ? 'btn-primary' : 'btn-ghost'}`} 
+                style={navItemStyle}
+              >
+                <Lock size={20} /> <span>Security Hub</span>
+              </button>
+              <button 
+                onClick={() => handleTabClick('archives')} 
+                className={`btn ${(isDashboardBase && activeTab === 'archives') ? 'btn-primary' : 'btn-ghost'}`} 
+                style={navItemStyle}
+              >
+                <Compass size={20} /> <span>Audit Records</span>
+              </button>
             </>
           )}
 
-          <NavLink to="/history" onClick={() => setIsOpen(false)} className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-ghost'}`} style={navItemStyle}>
-             <History size={20} /> <span>History</span>
-          </NavLink>
-
-          {isAdminOrHOD && (
-            <button 
-              onClick={() => handleTabClick('security')} 
-              className={`btn ${(isDashboardBase && activeTab === 'security') ? 'btn-primary' : 'btn-ghost'}`} 
-              style={navItemStyle}
-            >
-              <Lock size={20} /> <span>Security Hub</span>
-            </button>
+          {!isAdminOrHOD && (
+            <NavLink to="/history" onClick={() => setIsOpen(false)} className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-ghost'}`} style={navItemStyle}>
+               <History size={20} /> <span>History</span>
+            </NavLink>
           )}
         </nav>
 

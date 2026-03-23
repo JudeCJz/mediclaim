@@ -11,16 +11,38 @@ const Settings = () => {
     const [showPass, setShowPass] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
+    const [alertConfig, setAlertConfig] = useState({ title: '', text: '', onConfirm: null });
+
+    const AlertModal = ({ config, onClose }) => {
+        if (!config.title) return null;
+        return (
+            <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', backdropFilter: 'blur(8px)' }}>
+                <div className="glass-panel animate-pop" style={{ width: '90%', maxWidth: '450px', padding: '3rem', textAlign: 'center', border: '2px solid var(--border-glass)', background: 'var(--bg-card)', boxShadow: '20px 20px 0px rgba(0,0,0,0.4)' }}>
+                    <div style={{ width: '80px', height: '80px', background: 'var(--primary-glow)', borderRadius: '15px', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 2rem' }}>
+                        <ShieldCheck size={40} />
+                    </div>
+                    <h2 style={{ fontSize: '2rem', fontWeight: 900, marginBottom: '1rem', textTransform: 'uppercase' }}>{config.title}</h2>
+                    <p style={{ opacity: 0.7, fontWeight: 700, marginBottom: '2.5rem' }}>{config.text}</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: config.onConfirm ? '1fr 1fr' : '1fr', gap: '1rem' }}>
+                        {config.onConfirm && <button className="btn btn-ghost" style={{ padding: '1.2rem', fontWeight: 900 }} onClick={onClose}>CANCEL</button>}
+                        <button className="btn btn-primary" style={{ padding: '1.2rem', fontWeight: 900 }} onClick={() => { if (config.onConfirm) config.onConfirm(); onClose(); }}>
+                            {config.onConfirm ? 'CONFIRM' : 'OK'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
     const handlePasswordChange = async (e) => {
         e.preventDefault();
         setMessage({ type: '', text: '' });
 
         if (passwords.next !== passwords.confirm) {
-            return setMessage({ type: 'error', text: 'PROTOCOL_MISMATCH: Passwords do not match.' });
+            return setMessage({ type: 'error', text: 'Passwords do not match.' });
         }
         if (passwords.next.length < 6) {
-            return setMessage({ type: 'error', text: 'SECURITY_VIOLATION: Minimum 6 characters required.' });
+            return setMessage({ type: 'error', text: 'Minimum 6 characters required.' });
         }
 
         setIsUpdating(true);
@@ -29,11 +51,11 @@ const Settings = () => {
             await reauthenticateWithCredential(auth.currentUser, credential);
             await updatePassword(auth.currentUser, passwords.next);
             
-            setMessage({ type: 'success', text: 'ACCESS_RENEWED: Password updated successfully.' });
+            setMessage({ type: 'success', text: 'Password updated successfully.' });
             setPasswords({ current: '', next: '', confirm: '' });
         } catch (err) {
             console.error(err);
-            setMessage({ type: 'error', text: err.code?.includes('wrong-password') ? 'AUTH_DENIED: Current password incorrect.' : 'SYSTEM_REJECTION: Request blocked.' });
+            setMessage({ type: 'error', text: err.code?.includes('wrong-password') ? 'Current password incorrect.' : 'Request blocked by security.' });
         } finally {
             setIsUpdating(false);
         }
@@ -50,12 +72,12 @@ const Settings = () => {
                 <div className="glass-panel" style={{ padding: '2.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2.5rem' }}>
                         <User size={24} color="var(--primary)" />
-                        <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1rem' }}>Profile Data</h2>
+                        <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1rem' }}>Profile Information</h2>
                     </div>
 
                     <div style={{ display: 'grid', gap: '1.2rem' }}>
                         <div className="f-group">
-                            <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>FULL_NAME</label>
+                            <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>Full Name</label>
                             <input 
                                 type="text" className="glass-panel" 
                                 style={{ width: '100%', padding: '1rem', fontWeight: 700 }}
@@ -65,10 +87,10 @@ const Settings = () => {
                         <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={async () => {
                             try {
                                 await updateProfile({ name });
-                                alert("SUCCESS: Personal record updated.");
-                            } catch (e) { alert("ERROR: Update failed."); }
+                                setAlertConfig({ title: 'Success', text: 'Personal record updated successfully.' });
+                            } catch (e) { setAlertConfig({ title: 'Error', text: 'Update failed.' }); }
                         }}>
-                             UPDATE_PROFILE
+                             Update Profile
                         </button>
                     </div>
                 </div>
@@ -77,7 +99,7 @@ const Settings = () => {
                 <div className="glass-panel" style={{ padding: '2.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2.5rem' }}>
                         <Key size={24} color="var(--primary)" />
-                        <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1rem' }}>Access PIN Change</h2>
+                        <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1rem' }}>Security Settings</h2>
                     </div>
 
                     {message.text && (
@@ -112,10 +134,13 @@ const Settings = () => {
                             />
                         </div>
 
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 800 }}>
-                            <input type="checkbox" checked={showPass} onChange={e => setShowPass(e.target.checked)} style={{ width: '18px', height: '18px' }} />
-                            Show Password
-                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'rgba(255,255,255,0.02)', padding: '0.6rem 1rem', border: '1px solid var(--border-glass)', marginTop: '0.5rem' }}>
+                            <label className="inst-switch">
+                                <input type="checkbox" checked={showPass} onChange={e => setShowPass(e.target.checked)} />
+                                <span className="inst-slider"></span>
+                            </label>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)' }}>Show Password</span>
+                        </div>
 
                         <button className="btn btn-primary" type="submit" style={{ width: '100%', justifyContent: 'center', marginTop: '1rem' }} disabled={isUpdating}>
                             {isUpdating ? <Loader2 className="animate-spin" size={20} /> : 'Update Password'}
@@ -123,6 +148,7 @@ const Settings = () => {
                     </form>
                 </div>
             </div>
+            <AlertModal config={alertConfig} onClose={() => setAlertConfig({ title: '', text: '', onConfirm: null })} />
         </div>
     );
 };
