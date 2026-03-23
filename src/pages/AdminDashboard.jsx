@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { db, firebaseConfig } from '../firebase';
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
-import { collection, query, onSnapshot, doc, setDoc, deleteDoc, updateDoc, addDoc, serverTimestamp, getDocs, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, setDoc, deleteDoc, updateDoc, addDoc, serverTimestamp, getDocs, where, writeBatch } from 'firebase/firestore';
 import { Users, FileText, Search, Download, Trash2, Upload, Loader2, Settings, ShieldCheck, Plus, X, Edit, Mail, Info, Send, Save, UserMinus, Key, ShieldAlert, Archive, RotateCcw } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 
@@ -157,28 +157,24 @@ const AdminDashboard = () => {
             return;
         }
         try {
-            await updateDoc(doc(db, "financialYears", fy.id), { 
-                enabled: false, 
-                isArchived: true, 
-                archivedAt: serverTimestamp() 
-            });
-
+            const batch = writeBatch(db);
+            const fyRef = doc(db, "financialYears", fy.id);
+            batch.update(fyRef, { enabled: false, isArchived: true, archivedAt: serverTimestamp() });
+            
             const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
             const snap = await getDocs(q);
+            snap.docs.forEach(d => {
+                batch.update(doc(db, "submissions", d.id), { archived: true, fyName: fy.name });
+            });
             
-            const batchPromises = snap.docs.map(d => 
-                updateDoc(doc(db, "submissions", d.id), { archived: true, fyName: fy.name })
-            );
-            
-            await Promise.all(batchPromises);
-
+            await batch.commit();
             setAlertConfig({ 
                 title: 'SESSION ARCHIVED', 
-                text: `Session ${fy.name} and its ${snap.docs.length} records have been moved to the Audit Archives.` 
+                text: `Session ${fy.name} has been formally closed and moved to records.` 
             });
         } catch (err) { 
             console.error(err);
-            setAlertConfig({ title: 'ARCHIVE ERROR', type: 'danger', text: 'Failed to archive session logs.' });
+            setAlertConfig({ title: 'ARCHIVE ERROR', type: 'danger', text: 'Critical failure during session archival. Check network connection.' });
         } finally { setIsProcessing(false); }
     };
 
@@ -190,12 +186,18 @@ const AdminDashboard = () => {
             return;
         }
         try {
-            await updateDoc(doc(db, "financialYears", fy.id), { enabled: true, isArchived: false });
+            const batch = writeBatch(db);
+            const fyRef = doc(db, "financialYears", fy.id);
+            batch.update(fyRef, { enabled: true, isArchived: false });
+            
             const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
             const snap = await getDocs(q);
-            const batch = snap.docs.map(d => updateDoc(doc(db, "submissions", d.id), { archived: false }));
-            await Promise.all(batch);
-            setAlertConfig({ title: 'SESSION RESTORED', text: `Session ${fy.name} is now back in the active cycle.` });
+            snap.docs.forEach(d => {
+                batch.update(doc(db, "submissions", d.id), { archived: false });
+            });
+            
+            await batch.commit();
+            setAlertConfig({ title: 'SESSION RESTORED', text: `Session ${fy.name} reactivated in registry.` });
         } catch (err) { 
             console.error(err);
             setAlertConfig({ title: 'RESTORE ERROR', type: 'danger', text: 'Critical failure during session restoration.' });
@@ -1047,6 +1049,12 @@ const AdminDashboard = () => {
             )}
 
 
+            {isProcessing && (
+                <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(20px)' }}>
+                    <div style={{ width: '60px', height: '60px', border: '5px solid var(--primary)', borderRightColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                    <div style={{ marginTop: '2rem', fontWeight: 900, color: 'white', letterSpacing: '2px', fontSize: '0.8rem', textTransform: 'uppercase' }}>Synchronizing Institutional Database...</div>
+                </div>
+            )}
         </div>
     );
 };

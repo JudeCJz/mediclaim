@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { db, firebaseConfig } from '../firebase';
 import { initializeApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
-import { collection, query, onSnapshot, doc, setDoc, deleteDoc, updateDoc, addDoc, serverTimestamp, getDocs, where } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, setDoc, deleteDoc, updateDoc, addDoc, serverTimestamp, getDocs, where, writeBatch } from 'firebase/firestore';
 import { Users, Search, Download, Trash2, Upload, Loader2, Settings, Plus, X, Edit, Mail, Info, Send, Save, Archive, User, Phone, Briefcase, Heart, CheckCircle, BarChart3, Activity, Clock, ArrowRight, Lock, Unlock, ShieldAlert, Key, RotateCcw } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import * as XLSX from 'xlsx';
@@ -104,52 +104,27 @@ const HODDashboard = () => {
     const archiveYear = async (fy) => {
         setIsProcessing(true);
         if (isDemoMode) {
-            // Simulate archival in Demo Mode
             setAlertConfig({ title: 'DEMO ARCHIVE SUCCESS', text: `Session ${fy.name} archived locally. (Demo Mode overrides Firestore)` });
             setIsProcessing(false);
             return;
         }
         try {
-            await updateDoc(doc(db, "financialYears", fy.id), { enabled: false, isArchived: true, archivedAt: serverTimestamp() });
+            const batch = writeBatch(db);
+            const fyRef = doc(db, "financialYears", fy.id);
+            batch.update(fyRef, { enabled: false, isArchived: true, archivedAt: serverTimestamp() });
+            
             const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
             const snap = await getDocs(q);
-            const batchPromises = snap.docs.map(d => updateDoc(doc(db, "submissions", d.id), { archived: true, fyName: fy.name }));
-            await Promise.all(batchPromises);
+            snap.docs.forEach(d => {
+                batch.update(doc(db, "submissions", d.id), { archived: true, fyName: fy.name });
+            });
+            
+            await batch.commit();
             setAlertConfig({ title: 'SESSION ARCHIVED', text: `Session ${fy.name} has been formally closed and moved to records.` });
         } catch (err) { 
             console.error(err);
-            setAlertConfig({ title: 'ARCHIVE ERROR', type: 'danger', text: 'Critical failure during session archival.' });
+            setAlertConfig({ title: 'ARCHIVE ERROR', type: 'danger', text: 'Critical failure during session archival. Check network connection.' });
         } finally { setIsProcessing(false); }
-    };
-
-    const handleBulkStatus = async (status) => {
-        setIsBulkProcessing(true);
-        try {
-            for (const id of selectedIds) {
-                await updateDoc(doc(db, "users", id), { status });
-            }
-            setSelectedIds([]);
-        } catch (e) { console.error(e); }
-        setIsBulkProcessing(false);
-    };
-
-    const handleBulkDelete = async () => {
-        setAlertConfig({
-            title: 'Bulk Delete',
-            type: 'danger',
-            text: `Permanently delete ${selectedIds.length} selected accounts and their records?`,
-            onConfirm: async () => {
-                setIsBulkProcessing(true);
-                for (const id of selectedIds) {
-                    await deleteDoc(doc(db, "users", id));
-                    const qS = query(collection(db, "submissions"), where("userId", "==", id));
-                    const snapS = await getDocs(qS);
-                    for (const d of snapS.docs) await deleteDoc(doc(db, "submissions", d.id));
-                }
-                setSelectedIds([]);
-                setIsBulkProcessing(false);
-            }
-        });
     };
 
     const unarchiveYear = async (fy) => {
@@ -160,12 +135,18 @@ const HODDashboard = () => {
             return;
         }
         try {
-            await updateDoc(doc(db, "financialYears", fy.id), { enabled: true, isArchived: false });
+            const batch = writeBatch(db);
+            const fyRef = doc(db, "financialYears", fy.id);
+            batch.update(fyRef, { enabled: true, isArchived: false });
+            
             const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
             const snap = await getDocs(q);
-            const batch = snap.docs.map(d => updateDoc(doc(db, "submissions", d.id), { archived: false }));
-            await Promise.all(batch);
-            setAlertConfig({ title: 'SESSION RESTORED', text: `Session ${fy.name} is now back in the active registry.` });
+            snap.docs.forEach(d => {
+                batch.update(doc(db, "submissions", d.id), { archived: false });
+            });
+            
+            await batch.commit();
+            setAlertConfig({ title: 'SESSION RESTORED', text: `Session ${fy.name} reactivated in registry.` });
         } catch (err) { 
             console.error(err);
             setAlertConfig({ title: 'RESTORE ERROR', type: 'danger', text: 'Critical failure during session restoration.' });
@@ -633,8 +614,8 @@ const HODDashboard = () => {
                                                 </div>
                                             </td>
                                             <td style={{ fontSize: '0.8rem', opacity: 0.7 }}>{f.email}</td>
-                                            <td>
-                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                             <td>
+                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1.5rem' }}>
                                                      <label className="inst-switch" style={{ transform: 'scale(1)', cursor: 'pointer' }}>
                                                          <input 
                                                              type="checkbox" 
@@ -643,18 +624,34 @@ const HODDashboard = () => {
                                                                  const checked = e.target.checked;
                                                                  const ns = checked ? 'active' : 'disabled';
                                                                  try {
-                                                                     // Optimistic local update
                                                                      const updatedList = faculty.map(it => it.id === f.id ? { ...it, status: ns } : it);
                                                                      setFaculty(updatedList);
                                                                      await updateDoc(doc(db, "users", f.id), { status: ns });
                                                                  } catch (err) {
-                                                                     console.error("Access change failed:", err);
-                                                                     setAlertConfig({ title: 'ACCESS ERROR', type: 'danger', text: 'Failed to synchronize access status with backend.' });
+                                                                     console.error("Admin toggle failed:", err);
+                                                                     setAlertConfig({ title: 'SYNC ERROR', type: 'danger', text: 'Access update failed.' });
                                                                  }
                                                              }} 
                                                          />
                                                          <span className="inst-slider"></span>
                                                      </label>
+                                                     <button 
+                                                         className="btn btn-ghost" 
+                                                         style={{ padding: '0.4rem', color: '#ef4444', opacity: 0.6 }}
+                                                         onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                                                         onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                                                         onClick={() => {
+                                                             setAlertConfig({
+                                                                 title: 'DELETE ACCOUNT',
+                                                                 text: `Permanently delete ${f.name} from the central database?`,
+                                                                 onConfirm: async () => {
+                                                                     try { await deleteDoc(doc(db, "users", f.id)); } catch (err) { console.error(err); }
+                                                                 }
+                                                             });
+                                                         }}
+                                                     >
+                                                         <Trash2 size={16} />
+                                                     </button>
                                                  </div>
                                              </td>
                                         </tr>
