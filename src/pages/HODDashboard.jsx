@@ -99,6 +99,11 @@ const HODDashboard = () => {
     };
 
     const archiveYear = async (fy) => {
+        if (isDemoMode) {
+            setYears(prev => prev.map(y => y.id === fy.id ? { ...y, enabled: false, isArchived: true, archivedAt: { toDate: () => new Date() } } : y));
+            setAlertConfig({ title: 'SESSION ARCHIVED', text: `Session ${fy.name} has been formally closed and moved to records.` });
+            return;
+        }
         setIsProcessing(true);
         try {
             await updateDoc(doc(db, "financialYears", fy.id), { enabled: false, isArchived: true, archivedAt: serverTimestamp() });
@@ -144,6 +149,11 @@ const HODDashboard = () => {
     };
 
     const unarchiveYear = async (fy) => {
+        if (isDemoMode) {
+            setYears(prev => prev.map(y => y.id === fy.id ? { ...y, enabled: true, isArchived: false } : y));
+            setAlertConfig({ title: 'SESSION RESTORED', text: `Session ${fy.name} is now back in the active registry.` });
+            return;
+        }
         setIsProcessing(true);
         try {
             await updateDoc(doc(db, "financialYears", fy.id), { enabled: true, isArchived: false });

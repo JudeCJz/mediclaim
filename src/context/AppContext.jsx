@@ -30,7 +30,12 @@ export const AppProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
   const [activeFY, setActiveFY] = useState(DEMO_FY); // Start with Demo FY
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTabState] = useState(localStorage.getItem('activeTab') || 'overview');
+  
+  const setActiveTab = (tab) => {
+    localStorage.setItem('activeTab', tab);
+    setActiveTabState(tab);
+  };
   const [isDemoMode, setIsDemoMode] = useState(false);
 
   // Theme Toggle: Circular Flood Reveal

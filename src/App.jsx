@@ -73,7 +73,15 @@ const Protected = ({ children, role }) => {
 };
 
 const Home = () => {
-    const { user } = useApp();
+    const { user, loading } = useApp();
+    if (loading) return (
+        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main)', gap: '1.5rem' }}>
+            <div style={{ width: '80px', height: '80px', background: 'var(--primary)', boxShadow: '0 0 50px var(--primary-glow)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse 2s infinite' }}>
+                <ShieldCheck size={40} color="white" />
+            </div>
+            <div style={{ letterSpacing: '1px', fontSize: '0.9rem', fontWeight: 900, color: 'var(--text-muted)' }}>Verifying Security...</div>
+        </div>
+    );
     if (!user) return <Navigate to="/login" />;
     if (user.role === 'admin') return <Navigate to="/admin" />;
     if (user.role === 'hod') return <Navigate to="/hod" />;

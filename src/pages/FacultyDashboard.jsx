@@ -143,6 +143,7 @@ const FacultyDashboard = () => {
             premium: selectedPolicy.premium,
             dependents,
             fyId: selectedFY.id,
+            archived: false,
             timestamp: serverTimestamp()
         };
         if (isDemoMode) {

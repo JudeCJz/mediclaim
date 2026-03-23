@@ -32,6 +32,10 @@ const AdminDashboard = () => {
     const [isFilterOpen, setIsFilterOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
     const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+    const [facultySearch, setFacultySearch] = useState('');
+    const [showBulkModal, setShowBulkModal] = useState(false);
+    const [isProcessingBulk, setIsProcessingBulk] = useState(false);
+    const [showDisabled, setShowDisabled] = useState(false);
 
     const [editingFYId, setEditingFYId] = useState(null);
     const [newFY, setNewFY] = useState({
@@ -144,25 +148,49 @@ const AdminDashboard = () => {
     };
 
     const archiveYear = async (fy) => {
+        if (isDemoMode) {
+            setYears(prev => prev.map(y => y.id === fy.id ? { ...y, enabled: false, isArchived: true, archivedAt: { toDate: () => new Date() } } : y));
+            setAlertConfig({ title: 'SESSION ARCHIVED', text: `Session ${fy.name} and its records have been moved to the Audit Archives.` });
+            return;
+        }
         setIsProcessing(true);
         try {
+            // 1. Mark the FY as archived
             await updateDoc(doc(db, "financialYears", fy.id), { 
                 enabled: false, 
                 isArchived: true, 
                 archivedAt: serverTimestamp() 
             });
+
+            // 2. Mark ALL related submissions as archived
             const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
             const snap = await getDocs(q);
-            const batch = snap.docs.map(d => updateDoc(doc(db, "submissions", d.id), { archived: true }));
-            await Promise.all(batch);
-            setAlertConfig({ title: 'SESSION ARCHIVED', text: `Session ${fy.name} has been formally closed and moved to records.` });
+            
+            // Log for debugging
+            console.log(`Archiving ${snap.docs.length} submissions for ${fy.name}`);
+
+            const batchPromises = snap.docs.map(d => 
+                updateDoc(doc(db, "submissions", d.id), { archived: true })
+            );
+            
+            await Promise.all(batchPromises);
+
+            setAlertConfig({ 
+                title: 'SESSION ARCHIVED', 
+                text: `Session ${fy.name} and its ${snap.docs.length} records have been moved to the Audit Archives.` 
+            });
         } catch (err) { 
-            console.error(err);
-            setAlertConfig({ title: 'ARCHIVE ERROR', type: 'danger', text: 'Critical failure during session archival.' });
+            console.error("Archive Error:", err);
+            setAlertConfig({ title: 'ARCHIVE ERROR', type: 'danger', text: 'Failed to archive session logs. Check console for details.' });
         } finally { setIsProcessing(false); }
     };
 
     const unarchiveYear = async (fy) => {
+        if (isDemoMode) {
+            setYears(prev => prev.map(y => y.id === fy.id ? { ...y, enabled: true, isArchived: false } : y));
+            setAlertConfig({ title: 'SESSION RESTORED', text: `Session ${fy.name} is now back in the active cycle.` });
+            return;
+        }
         setIsProcessing(true);
         try {
             await updateDoc(doc(db, "financialYears", fy.id), { enabled: true, isArchived: false });
@@ -306,7 +334,7 @@ const AdminDashboard = () => {
                         <table className="data-table">
                             <thead><tr><th>Year</th><th>Status</th><th>Coverage Options</th><th>Family Limits</th><th>Actions</th></tr></thead>
                             <tbody>
-                                {years.map(y => (
+                                {years.filter(y => !y.isArchived).map(y => (
                                     <tr key={y.id}>
                                         <td style={{ fontWeight: 900, fontSize: '1.2rem' }}>{y.name}</td>
                                         <td>
