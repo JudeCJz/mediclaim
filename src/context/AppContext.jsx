@@ -107,24 +107,16 @@ export const AppProvider = ({ children }) => {
 
   const login = async (email, password) => {
     // INSTITUTIONAL LOGS: Strictly allow only the requested accounts for this fresh start
-    if (email === 'hod@college.edu' && password === 'hod@college.edu') {
-      const hod = { ...VIP_ACCOUNTS[email], email, uid: 'local_hod_888' };
-      setUser(hod);
-      setIsDemoMode(true);
-      localStorage.setItem('mediclaim_user', JSON.stringify(hod));
-      return Promise.resolve();
-    }
+    // The previous local demo logins are removed to use live Firebase authentication.
+    // The `isDemoMode` flag will now be set based on the `onAuthStateChanged` listener
+    // if a local user is found, or if a VIP account is created in Firestore.
 
-    if (email === 'tfaculty@college.edu' && password === 'tfaculty@college.edu') {
-      const faculty = { ...VIP_ACCOUNTS[email], email, uid: 'local_faculty_888' };
-      setUser(faculty);
-      setIsDemoMode(true);
-      localStorage.setItem('mediclaim_user', JSON.stringify(faculty));
-      return Promise.resolve();
+    try {
+      const res = await signInWithEmailAndPassword(auth, email, password);
+      return res;
+    } catch (e) {
+      throw e;
     }
-
-    // Since user requested "ONLY these two logins", we block everything else
-    throw new Error("ACCESS_DENIED: Unauthorized access. Only the institutional HOD and Faculty accounts are active for this deployment.");
   };
 
   const logout = () => {

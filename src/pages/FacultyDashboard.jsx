@@ -86,7 +86,16 @@ const FacultyDashboard = () => {
         }
     }, [user, isDemoMode, activeFY]);
 
+    useEffect(() => {
+        const saved = localStorage.getItem('faculty_selected_fy');
+        if (saved && years.length > 0) {
+            const fy = years.find(y => y.id === saved);
+            if (fy) enterYear(fy);
+        }
+    }, [years]);
+
     const enterYear = (fy) => {
+        localStorage.setItem('faculty_selected_fy', fy.id);
         setSelectedFY(fy);
         setSuccess(false);
         const sub = userSubmissions[fy.id];
@@ -140,7 +149,14 @@ const FacultyDashboard = () => {
             ...profile,
             policy: selectedPolicy,
             coverageId: selectedPolicy.label,
-            premium: selectedPolicy.premium,
+            basePremium: selectedPolicy.premium,
+            spousePremium: (dependents.some(d => d.relation === 'Spouse') ? (selectedFY.spousePremium || 0) : 0),
+            childrenPremium: (dependents.filter(d => d.relation === 'Child').length * (selectedFY.childPremium || 0)),
+            parentsPremium: (dependents.filter(d => d.relation === 'Father' || d.relation === 'Mother').length * (selectedFY.parentPremium || 0)),
+            premium: selectedPolicy.premium + 
+                     (dependents.some(d => d.relation === 'Spouse') ? (selectedFY.spousePremium || 0) : 0) +
+                     (dependents.filter(d => d.relation === 'Child').length * (selectedFY.childPremium || 0)) +
+                     (dependents.filter(d => d.relation === 'Father' || d.relation === 'Mother').length * (selectedFY.parentPremium || 0)),
             dependents,
             fyId: selectedFY.id,
             archived: false,
@@ -174,6 +190,11 @@ const FacultyDashboard = () => {
             setTimeout(() => setSelectedFY(null), 2500);
         } catch (err) { console.error(err); setAlertConfig({ title: 'Error', text: "Failed to save data. Please try again." }); }
         finally { setIsSubmitting(false); }
+    };
+
+    const exitToHome = () => {
+        localStorage.removeItem('faculty_selected_fy');
+        setSelectedFY(null);
     };
 
     if (!selectedFY) return (
@@ -311,7 +332,7 @@ const FacultyDashboard = () => {
     return (
         <div style={{ width: '100%', margin: '0 auto', paddingBottom: '5rem' }}>
             <div className="flex-adaptive-header">
-                <button className="btn btn-ghost" onClick={() => setSelectedFY(null)} style={{ border: '2px solid var(--border-glass)', padding: '0.8rem 2rem' }}><ArrowLeft /> EXIT_TO_HOME</button>
+                <button className="btn btn-ghost" onClick={exitToHome} style={{ border: '2px solid var(--border-glass)', padding: '0.8rem 2rem' }}><ArrowLeft /> EXIT_TO_HOME</button>
                 <div className="header-info">
                     <h1 style={{ fontSize: 'clamp(1.5rem, 5vw, 2rem)', fontWeight: 900 }}>FINANCIAL CYCLE {selectedFY.name}</h1>
                     <p style={{ color: isLocked ? '#ef4444' : '#22c55e', fontWeight: 900, fontSize: '0.75rem', letterSpacing: '1px' }}>{isLocked ? 'VIEW_ONLY' : 'ENROLLMENT_OPEN'}</p>

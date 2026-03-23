@@ -14,6 +14,7 @@ const AdminDashboard = () => {
     const { user, activeFY, activeTab, setActiveTab, isDemoMode, DEMO_FACULTY } = useApp();
     const [years, setYears] = useState([]);
     const [submissions, setSubmissions] = useState([]);
+    const recentSubmissions = submissions.filter(s => !s.archived).slice(0, 5);
     const [faculty, setFaculty] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [bulkData, setBulkData] = useState("");
@@ -32,16 +33,17 @@ const AdminDashboard = () => {
     const [isFilterOpen, setIsFilterOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
     const [isBulkProcessing, setIsBulkProcessing] = useState(false);
-    const [facultySearch, setFacultySearch] = useState('');
-    const [showBulkModal, setShowBulkModal] = useState(false);
-    const [isProcessingBulk, setIsProcessingBulk] = useState(false);
-    const [showDisabled, setShowDisabled] = useState(false);
 
     const [editingFYId, setEditingFYId] = useState(null);
+    const [facultySearch, setFacultySearch] = useState('');
+    const [showDisabled, setShowDisabled] = useState(true);
     const [newFY, setNewFY] = useState({
         name: '2026-2027',
         maxChildren: 2,
         maxParents: 4,
+        spousePremium: 0,
+        childPremium: 0,
+        parentPremium: 0,
         enabled: true,
         policies: [
             { id: 'p1', label: '1.5 Lakhs', premium: 4500 },
@@ -148,29 +150,24 @@ const AdminDashboard = () => {
     };
 
     const archiveYear = async (fy) => {
+        setIsProcessing(true);
         if (isDemoMode) {
-            setYears(prev => prev.map(y => y.id === fy.id ? { ...y, enabled: false, isArchived: true, archivedAt: { toDate: () => new Date() } } : y));
-            setAlertConfig({ title: 'SESSION ARCHIVED', text: `Session ${fy.name} and its records have been moved to the Audit Archives.` });
+            setAlertConfig({ title: 'DEMO ARCHIVE SUCCESS', text: `Session ${fy.name} archived locally. (Demo Mode overrides Firestore)` });
+            setIsProcessing(false);
             return;
         }
-        setIsProcessing(true);
         try {
-            // 1. Mark the FY as archived
             await updateDoc(doc(db, "financialYears", fy.id), { 
                 enabled: false, 
                 isArchived: true, 
                 archivedAt: serverTimestamp() 
             });
 
-            // 2. Mark ALL related submissions as archived
             const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
             const snap = await getDocs(q);
             
-            // Log for debugging
-            console.log(`Archiving ${snap.docs.length} submissions for ${fy.name}`);
-
             const batchPromises = snap.docs.map(d => 
-                updateDoc(doc(db, "submissions", d.id), { archived: true })
+                updateDoc(doc(db, "submissions", d.id), { archived: true, fyName: fy.name })
             );
             
             await Promise.all(batchPromises);
@@ -180,18 +177,18 @@ const AdminDashboard = () => {
                 text: `Session ${fy.name} and its ${snap.docs.length} records have been moved to the Audit Archives.` 
             });
         } catch (err) { 
-            console.error("Archive Error:", err);
-            setAlertConfig({ title: 'ARCHIVE ERROR', type: 'danger', text: 'Failed to archive session logs. Check console for details.' });
+            console.error(err);
+            setAlertConfig({ title: 'ARCHIVE ERROR', type: 'danger', text: 'Failed to archive session logs.' });
         } finally { setIsProcessing(false); }
     };
 
     const unarchiveYear = async (fy) => {
+        setIsProcessing(true);
         if (isDemoMode) {
-            setYears(prev => prev.map(y => y.id === fy.id ? { ...y, enabled: true, isArchived: false } : y));
-            setAlertConfig({ title: 'SESSION RESTORED', text: `Session ${fy.name} is now back in the active cycle.` });
+            setAlertConfig({ title: 'DEMO RESTORE SUCCESS', text: `Session ${fy.name} restored locally.` });
+            setIsProcessing(false);
             return;
         }
-        setIsProcessing(true);
         try {
             await updateDoc(doc(db, "financialYears", fy.id), { enabled: true, isArchived: false });
             const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
@@ -319,6 +316,67 @@ const AdminDashboard = () => {
                             ) : (
                                 <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setAlertConfig(null)}>OK</button>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+            {activeTab === 'overview' && (
+                <div className="glass-panel" style={{ padding: '3rem' }}>
+                    <div style={{ marginBottom: '2.5rem' }}>
+                        <h2 style={{ fontWeight: 900 }}>Operational Insights</h2>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Real-time metrics for the current enrollment cycle.</p>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
+                        <div className="glass-panel" style={{ padding: '2.5rem', borderLeft: '6px solid var(--primary)', background: 'rgba(255,255,255,0.01)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                                <Users size={24} color="var(--primary)" />
+                                <div style={{ fontSize: '0.65rem', fontWeight: 900, background: 'rgba(99,102,241,0.1)', color: 'var(--primary)', padding: '2px 8px' }}>TOTAL_STAFF</div>
+                            </div>
+                            <div style={{ fontSize: '2.8rem', fontWeight: 900, lineHeight: 1 }}>{faculty.length}</div>
+                            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.8rem', fontWeight: 700 }}>Registered faculty accounts in system.</p>
+                        </div>
+
+                        <div className="glass-panel" style={{ padding: '2.5rem', borderLeft: '6px solid #22c55e', background: 'rgba(255,255,255,0.01)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                                <ShieldCheck size={24} color="#22c55e" />
+                                <div style={{ fontSize: '0.65rem', fontWeight: 900, background: 'rgba(34,197,94,0.1)', color: '#22c55e', padding: '2px 8px' }}>VALID_ENTRIES</div>
+                            </div>
+                            <div style={{ fontSize: '2.8rem', fontWeight: 900, lineHeight: 1 }}>{submissions.filter(s => !s.archived).length}</div>
+                            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.8rem', fontWeight: 700 }}>Enrollments for the active financial year.</p>
+                        </div>
+
+                        <div className="glass-panel" style={{ padding: '2.5rem', borderLeft: '6px solid #ef4444', background: 'rgba(255,255,255,0.01)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                                <Archive size={24} color="#ef4444" />
+                                <div style={{ fontSize: '0.65rem', fontWeight: 900, background: 'rgba(239,68,68,0.1)', color: '#ef4444', padding: '2px 8px' }}>ARCHIVED</div>
+                            </div>
+                            <div style={{ fontSize: '2.8rem', fontWeight: 900, lineHeight: 1 }}>{years.filter(y => y.isArchived).length}</div>
+                            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.8rem', fontWeight: 700 }}>Finalized and archived enrollment cycles.</p>
+                        </div>
+                    </div>
+
+                    <div style={{ marginTop: '3rem' }} className="glass-panel">
+                        <div style={{ padding: '2rem', borderBottom: '1px solid var(--border-glass)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3 style={{ fontWeight: 900, fontSize: '1rem' }}>RECENT ACCOUNT ACTIVITY</h3>
+                            <button className="btn btn-ghost" style={{ fontSize: '0.7rem' }} onClick={() => setActiveTab('recruit')}>VIEW ALL ACCOUNTS</button>
+                        </div>
+                        <div className="table-responsive" style={{ maxHeight: '400px' }}>
+                            <table className="data-table">
+                                <thead><tr><th>Faculty Member</th><th>Department</th><th>Access Status</th></tr></thead>
+                                <tbody>
+                                    {faculty.slice(0, 5).map(f => (
+                                        <tr key={f.id}>
+                                            <td style={{ fontWeight: 800 }}>{f.name}<div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{f.email}</div></td>
+                                            <td style={{ fontWeight: 700, fontSize: '0.8rem' }}>{f.department || 'Central Admin'}</td>
+                                            <td>
+                                                <div style={{ fontSize: '0.65rem', fontWeight: 900, color: f.status === 'disabled' ? '#ef4444' : '#22c55e' }}>
+                                                    {f.status?.toUpperCase() || 'ACTIVE'}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -532,60 +590,13 @@ const AdminDashboard = () => {
                         className="glass-panel"
                         style={{ width: '100%', minHeight: '300px', padding: '1.5rem', background: 'rgba(44, 30, 30, 0.2)', color: 'white', fontWeight: 700 }}
                         value={bulkData} onChange={e => setBulkData(e.target.value)}
-                        placeholder="e.g. Jude, Engineering, jude@college.edu"
+                        placeholder="e.g. Full Name, Department, email@college.edu"
                     />
                     <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                        <button className="btn btn-primary" onClick={() => {
-                            const names = bulkData.split('\n').filter(r => r.trim().length > 5);
-                            if (names.length === 0) return setAlertConfig({ title: 'LIST IS EMPTY', text: 'Enter email addresses (or Name, Dept, Email rows) to mass enable accounts.' });
-                            setAlertConfig({
-                                title: 'CONFIRM MASS ENABLE',
-                                text: `Restore access for ${names.length} selected accounts?`,
-                                onConfirm: async () => {
-                                    try {
-                                        setIsProcessing(true);
-                                        for (const row of names) {
-                                            const email = row.includes(',') ? row.split(',')[2]?.trim() : row.trim();
-                                            const userRef = faculty.find(f => f.email === email);
-                                            if (userRef) await updateDoc(doc(db, 'users', userRef.id), { status: 'active' });
-                                        }
-                                        setAlertConfig({ title: 'ACCOUNTS ENABLED', text: 'All matched accounts are now active.' });
-                                    } catch(e) {
-                                        setAlertConfig({ title: 'ERROR', type: 'danger', text: 'Something went wrong during the update.' });
-                                    } finally { setIsProcessing(false); }
-                                }
-                            });
-                        }} style={{ background: '#22c55e', justifyContent: 'center', fontSize: '0.75rem' }} disabled={isProcessing || !bulkData}>
-                            MASS ENABLE
-                        </button>
-                        <button className="btn btn-primary" onClick={() => {
-                            const names = bulkData.split('\n').filter(r => r.trim().length > 5);
-                            if (names.length === 0) return setAlertConfig({ title: 'LIST IS EMPTY', text: 'Enter email addresses (or Name, Dept, Email rows) to mass disable accounts.' });
-                            setAlertConfig({
-                                title: 'CONFIRM MASS DISABLE',
-                                type: 'danger',
-                                text: `Disable access for ${names.length} selected accounts?`,
-                                onConfirm: async () => {
-                                    try {
-                                        setIsProcessing(true);
-                                        for (const row of names) {
-                                            const email = row.includes(',') ? row.split(',')[2]?.trim() : row.trim();
-                                            const userRef = faculty.find(f => f.email === email);
-                                            if (userRef) await updateDoc(doc(db, 'users', userRef.id), { status: 'disabled' });
-                                        }
-                                        setAlertConfig({ title: 'ACCOUNTS DISABLED', text: 'All matched accounts are now disabled.' });
-                                    } catch(e) {
-                                        setAlertConfig({ title: 'ERROR', type: 'danger', text: 'Something went wrong during the update.' });
-                                    } finally { setIsProcessing(false); }
-                                }
-                            });
-                        }} style={{ background: '#ef4444', justifyContent: 'center', fontSize: '0.75rem' }} disabled={isProcessing || !bulkData}>
-                            MASS DISABLE
-                        </button>
-                        <button className="btn btn-ghost" style={{ color: '#ef4444' }} onClick={processBulkDelete} disabled={isProcessing || !bulkData}>
+                        <button className="btn btn-ghost" style={{ color: '#ef4444', flex: 1 }} onClick={processBulkDelete} disabled={isProcessing || !bulkData}>
                             {isProcessing ? <div className="btn-loader"><ShieldCheck size={20} /></div> : <><UserMinus size={18} /> Bulk Delete</>}
                         </button>
-                        <button className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={processBulk} disabled={isProcessing || !bulkData}>
+                        <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={processBulk} disabled={isProcessing || !bulkData}>
                             {isProcessing ? <div className="btn-loader"><ShieldCheck size={20} /></div> : 'Register Accounts'}
                         </button>
                     </div>
@@ -635,22 +646,10 @@ const AdminDashboard = () => {
                             </div>
                         </div>
 
-                        {selectedIds.length > 0 && (
-                            <div className="glass-panel" style={{ padding: '1rem 2rem', marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--primary-glow)', border: '1px solid var(--primary)' }}>
-                                <span style={{ fontWeight: 900, fontSize: '0.8rem' }}>{selectedIds.length} ACCOUNTS SELECTED</span>
-                                <div style={{ display: 'flex', gap: '1rem' }}>
-                                    <button className="btn btn-primary" style={{ padding: '0.6rem 1rem', fontSize: '0.7rem' }} onClick={() => handleBulkStatus('active')} disabled={isProcessingBulk}>Enable All</button>
-                                    <button className="btn btn-ghost" style={{ padding: '0.6rem 1rem', fontSize: '0.7rem' }} onClick={() => handleBulkStatus('disabled')} disabled={isProcessingBulk}>Disable All</button>
-                                    <button className="btn btn-ghost" style={{ padding: '0.6rem 1rem', fontSize: '0.7rem', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }} onClick={handleBulkDelete} disabled={isProcessingBulk}>Delete All</button>
-                                    <button className="btn btn-ghost" style={{ padding: '0.6rem', border: 'none' }} onClick={() => setSelectedIds([])}><X size={15} /></button>
-                                </div>
-                            </div>
-                        )}
-
                         <div className="table-responsive">
                             <table className="data-table">
                                 <thead>
-                                    <tr><th style={{ width: '40px' }}><input type="checkbox" checked={selectedIds.length > 0 && selectedIds.length === faculty.length} onChange={(e) => { if(e.target.checked) setSelectedIds(faculty.map(f => f.id)); else setSelectedIds([]); }} /></th><th>Faculty Member</th><th>Department</th><th>Phone / DOJ</th><th>Access Status</th><th>Manage</th></tr>
+                                    <tr><th>Faculty Member</th><th>Department</th><th>Phone / DOJ</th><th>Access Status</th><th style={{ textAlign: 'center' }}>Manage</th></tr>
                                 </thead>
                                 <tbody>
                                     {faculty.filter(f => {
@@ -666,7 +665,6 @@ const AdminDashboard = () => {
                                         return matchesSearch && matchesDate && matchesYear && matchesMonth;
                                     }).map(f => (
                                         <tr key={f.id} style={{ opacity: f.status === 'disabled' ? 0.4 : 1, transition: 'all 0.3s ease' }}>
-                                            <td><input type="checkbox" checked={selectedIds.includes(f.id)} onChange={() => { if(selectedIds.includes(f.id)) setSelectedIds(selectedIds.filter(id => id !== f.id)); else setSelectedIds([...selectedIds, f.id]); }} /></td>
                                             <td style={{ fontWeight: 800 }}>{f.name}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{f.email}</div></td>
                                             <td style={{ fontWeight: 700 }}>{f.department || 'Central Admin'}</td>
                                             <td style={{ fontSize: '0.75rem', fontWeight: 900 }}>
@@ -681,18 +679,30 @@ const AdminDashboard = () => {
                                                 )}
                                             </td>
                                             <td>
+                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                     <label className="inst-switch" style={{ transform: 'scale(1)', cursor: 'pointer' }}>
+                                                         <input 
+                                                             type="checkbox" 
+                                                             checked={f.status !== 'disabled'} 
+                                                             onChange={async (e) => {
+                                                                 const checked = e.target.checked;
+                                                                 const ns = checked ? 'active' : 'disabled';
+                                                                 try {
+                                                                     const updatedList = faculty.map(it => it.id === f.id ? { ...it, status: ns } : it);
+                                                                     setFaculty(updatedList);
+                                                                     await updateDoc(doc(db, "users", f.id), { status: ns });
+                                                                 } catch (err) {
+                                                                     console.error("Admin toggle failed:", err);
+                                                                     setAlertConfig({ title: 'SYNC ERROR', type: 'danger', text: 'Institutional access update failed.' });
+                                                                 }
+                                                             }} 
+                                                         />
+                                                         <span className="inst-slider"></span>
+                                                     </label>
+                                                 </div>
+                                             </td>
+                                            <td>
                                                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                                    <label className="inst-switch" style={{ transform: 'scale(0.7)' }}>
-                                                        <input 
-                                                            type="checkbox" 
-                                                            checked={f.status !== 'disabled'} 
-                                                            onChange={async () => {
-                                                                const ns = f.status === 'disabled' ? 'active' : 'disabled';
-                                                                await updateDoc(doc(db, "users", f.id), { status: ns });
-                                                            }} 
-                                                        />
-                                                        <span className="inst-slider"></span>
-                                                    </label>
                                                     <button className="btn btn-ghost" style={{ color: '#ef4444', padding: '0.4rem' }} onClick={() => {
                                                         setAlertConfig({
                                                             title: 'Remove Personnel',
@@ -883,6 +893,21 @@ const AdminDashboard = () => {
                                     <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>PARENT LIMIT</label>
                                     <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.maxParents} onChange={e => setNewFY({ ...newFY, maxParents: Number(e.target.value) })} />
                                 </div>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem', marginBottom: '2.5rem' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>SPOUSE PREM</label>
+                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.spousePremium || 0} onChange={e => setNewFY({ ...newFY, spousePremium: Number(e.target.value) })} placeholder="₹" />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>CHILD PREM (EA)</label>
+                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.childPremium || 0} onChange={e => setNewFY({ ...newFY, childPremium: Number(e.target.value) })} placeholder="₹" />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>PARENT PREM (EA)</label>
+                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.parentPremium || 0} onChange={e => setNewFY({ ...newFY, parentPremium: Number(e.target.value) })} placeholder="₹" />
                             </div>
                         </div>
 

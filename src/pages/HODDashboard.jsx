@@ -41,6 +41,9 @@ const HODDashboard = () => {
         name: '2026-2027',
         maxChildren: 2,
         maxParents: 4,
+        spousePremium: 0,
+        childPremium: 0,
+        parentPremium: 0,
         deadline: '',
         enabled: true,
         policies: [
@@ -99,18 +102,19 @@ const HODDashboard = () => {
     };
 
     const archiveYear = async (fy) => {
+        setIsProcessing(true);
         if (isDemoMode) {
-            setYears(prev => prev.map(y => y.id === fy.id ? { ...y, enabled: false, isArchived: true, archivedAt: { toDate: () => new Date() } } : y));
-            setAlertConfig({ title: 'SESSION ARCHIVED', text: `Session ${fy.name} has been formally closed and moved to records.` });
+            // Simulate archival in Demo Mode
+            setAlertConfig({ title: 'DEMO ARCHIVE SUCCESS', text: `Session ${fy.name} archived locally. (Demo Mode overrides Firestore)` });
+            setIsProcessing(false);
             return;
         }
-        setIsProcessing(true);
         try {
             await updateDoc(doc(db, "financialYears", fy.id), { enabled: false, isArchived: true, archivedAt: serverTimestamp() });
             const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
             const snap = await getDocs(q);
-            const batch = snap.docs.map(d => updateDoc(doc(db, "submissions", d.id), { archived: true }));
-            await Promise.all(batch);
+            const batchPromises = snap.docs.map(d => updateDoc(doc(db, "submissions", d.id), { archived: true, fyName: fy.name }));
+            await Promise.all(batchPromises);
             setAlertConfig({ title: 'SESSION ARCHIVED', text: `Session ${fy.name} has been formally closed and moved to records.` });
         } catch (err) { 
             console.error(err);
@@ -149,12 +153,12 @@ const HODDashboard = () => {
     };
 
     const unarchiveYear = async (fy) => {
+        setIsProcessing(true);
         if (isDemoMode) {
-            setYears(prev => prev.map(y => y.id === fy.id ? { ...y, enabled: true, isArchived: false } : y));
-            setAlertConfig({ title: 'SESSION RESTORED', text: `Session ${fy.name} is now back in the active registry.` });
+            setAlertConfig({ title: 'DEMO RESTORE SUCCESS', text: `Session ${fy.name} restored locally.` });
+            setIsProcessing(false);
             return;
         }
-        setIsProcessing(true);
         try {
             await updateDoc(doc(db, "financialYears", fy.id), { enabled: true, isArchived: false });
             const q = query(collection(db, "submissions"), where("fyId", "==", fy.id));
@@ -183,7 +187,7 @@ const HODDashboard = () => {
         revenue: submissions.reduce((sum, s) => sum + (s.premium || 0), 0)
     };
 
-    const recentSubmissions = [...submissions].sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)).slice(0, 5);
+    const recentSubmissions = [...submissions].filter(s => !s.archived).sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)).slice(0, 5);
     const activeYear = years.find(y => y.enabled === true);
 
     return (
@@ -454,7 +458,7 @@ const HODDashboard = () => {
                             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Manage multiple accounts or register new ones at once</p>
                             <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 900, marginBottom: '0.5rem', opacity: 0.8 }}>FORMAT: Name, Department, Institutional_Email (One per line)</div>
                         </div>
-                        <textarea className="glass-panel" style={{ width: '100%', height: '240px', padding: '1.2rem', fontWeight: 700, fontSize: '0.8rem', resize: 'none' }} value={bulkData} onChange={e => setBulkData(e.target.value)} placeholder="e.g. Jude, Engineering, jude@college.edu" />
+                        <textarea className="glass-panel" style={{ width: '100%', height: '240px', padding: '1.2rem', fontWeight: 700, fontSize: '0.8rem', resize: 'none' }} value={bulkData} onChange={e => setBulkData(e.target.value)} placeholder="e.g. Full Name, Department, institutional-email@college.edu" />
                         
                         {(isBulkProcessing || bulkProgress > 0) && (
                             <div style={{ marginTop: '1.5rem', background: 'rgba(255,255,255,0.05)', height: '40px', border: '2px solid var(--border-glass)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -609,21 +613,9 @@ const HODDashboard = () => {
                             </div>
                         </div>
 
-                        {selectedIds.length > 0 && (
-                            <div className="glass-panel" style={{ padding: '1rem 2rem', marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--primary-glow)', border: '1px solid var(--primary)' }}>
-                                <span style={{ fontWeight: 900, fontSize: '0.8rem' }}>{selectedIds.length} ACCOUNTS SELECTED</span>
-                                <div style={{ display: 'flex', gap: '1rem' }}>
-                                    <button className="btn btn-primary" style={{ padding: '0.6rem 1rem', fontSize: '0.7rem' }} onClick={() => handleBulkStatus('active')} disabled={isProcessingBulk}>Enable All</button>
-                                    <button className="btn btn-ghost" style={{ padding: '0.6rem 1rem', fontSize: '0.7rem' }} onClick={() => handleBulkStatus('disabled')} disabled={isProcessingBulk}>Disable All</button>
-                                    <button className="btn btn-ghost" style={{ padding: '0.6rem 1rem', fontSize: '0.7rem', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }} onClick={handleBulkDelete} disabled={isProcessingBulk}>Delete All</button>
-                                    <button className="btn btn-ghost" style={{ padding: '0.6rem', border: 'none' }} onClick={() => setSelectedIds([])}><X size={15} /></button>
-                                </div>
-                            </div>
-                        )}
-
                         <div className="table-responsive">
                             <table className="data-table">
-                                <thead><tr><th style={{ width: '40px' }}><input type="checkbox" checked={selectedIds.length > 0 && selectedIds.length === faculty.length} onChange={(e) => { if(e.target.checked) setSelectedIds(faculty.map(f => f.id)); else setSelectedIds([]); }} /></th><th>Faculty Member</th><th>Institutional Email</th><th>Actions</th></tr></thead>
+                                <thead><tr><th>Faculty Member</th><th>Institutional Email</th><th style={{ textAlign: 'center' }}>Actions</th></tr></thead>
                                 <tbody>
                                     {faculty.filter(f => {
                                         const matchesSearch = f.name?.toLowerCase().includes(facultySearch.toLowerCase()) || f.email?.toLowerCase().includes(facultySearch.toLowerCase());
@@ -633,7 +625,6 @@ const HODDashboard = () => {
                                         return matchesSearch && matchesDate && matchesYear && matchesMonth;
                                     }).map(f => (
                                         <tr key={f.id} style={{ opacity: f.status === 'disabled' ? 0.4 : 1, transition: 'opacity 0.3s ease' }}>
-                                            <td><input type="checkbox" checked={selectedIds.includes(f.id)} onChange={() => { if(selectedIds.includes(f.id)) setSelectedIds(selectedIds.filter(id => id !== f.id)); else setSelectedIds([...selectedIds, f.id]); }} /></td>
                                             <td style={{ fontWeight: 900 }}>
                                                 {f.name}
                                                 <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.2rem' }}>
@@ -643,20 +634,29 @@ const HODDashboard = () => {
                                             </td>
                                             <td style={{ fontSize: '0.8rem', opacity: 0.7 }}>{f.email}</td>
                                             <td>
-                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <label className="inst-switch" style={{ transform: 'scale(0.8)' }}>
-                                                        <input 
-                                                            type="checkbox" 
-                                                            checked={f.status !== 'disabled'} 
-                                                            onChange={async () => {
-                                                                const ns = f.status === 'disabled' ? 'active' : 'disabled';
-                                                                await updateDoc(doc(db, "users", f.id), { status: ns });
-                                                            }} 
-                                                        />
-                                                        <span className="inst-slider"></span>
-                                                    </label>
-                                                </div>
-                                            </td>
+                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                     <label className="inst-switch" style={{ transform: 'scale(1)', cursor: 'pointer' }}>
+                                                         <input 
+                                                             type="checkbox" 
+                                                             checked={f.status !== 'disabled'} 
+                                                             onChange={async (e) => {
+                                                                 const checked = e.target.checked;
+                                                                 const ns = checked ? 'active' : 'disabled';
+                                                                 try {
+                                                                     // Optimistic local update
+                                                                     const updatedList = faculty.map(it => it.id === f.id ? { ...it, status: ns } : it);
+                                                                     setFaculty(updatedList);
+                                                                     await updateDoc(doc(db, "users", f.id), { status: ns });
+                                                                 } catch (err) {
+                                                                     console.error("Access change failed:", err);
+                                                                     setAlertConfig({ title: 'ACCESS ERROR', type: 'danger', text: 'Failed to synchronize access status with backend.' });
+                                                                 }
+                                                             }} 
+                                                         />
+                                                         <span className="inst-slider"></span>
+                                                     </label>
+                                                 </div>
+                                             </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -900,6 +900,20 @@ const HODDashboard = () => {
                             <div className="f-group">
                                 <label style={{ fontSize: '0.7rem', fontWeight: 900 }}>Submission Deadline Date</label>
                                 <input type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem' }} value={newFY.deadline} onChange={e => setNewFY({...newFY, deadline: e.target.value})} />
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                                <div className="f-group">
+                                    <label style={{ fontSize: '0.6rem', fontWeight: 900 }}>SPOUSE PREM</label>
+                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.6rem' }} value={newFY.spousePremium || 0} onChange={e => setNewFY({...newFY, spousePremium: Number(e.target.value)})} placeholder="₹" />
+                                </div>
+                                <div className="f-group">
+                                    <label style={{ fontSize: '0.6rem', fontWeight: 900 }}>CHILD PREM (EA)</label>
+                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.6rem' }} value={newFY.childPremium || 0} onChange={e => setNewFY({...newFY, childPremium: Number(e.target.value)})} placeholder="₹" />
+                                </div>
+                                <div className="f-group">
+                                    <label style={{ fontSize: '0.6rem', fontWeight: 900 }}>PARENT PREM (EA)</label>
+                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.6rem' }} value={newFY.parentPremium || 0} onChange={e => setNewFY({...newFY, parentPremium: Number(e.target.value)})} placeholder="₹" />
+                                </div>
                             </div>
                             <div style={{ marginTop: '1rem' }}>
                                 <label style={{ fontSize: '0.7rem', fontWeight: 900 }}>Available Insurance Plans</label>
