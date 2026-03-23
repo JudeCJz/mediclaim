@@ -44,6 +44,9 @@ const AdminDashboard = () => {
         spousePremium: 0,
         childPremium: 0,
         parentPremium: 0,
+        allowSpouse: true,
+        allowChildren: true,
+        allowParents: true,
         enabled: true,
         policies: [
             { id: 'p1', label: '1.5 Lakhs', premium: 4500 },
@@ -328,7 +331,7 @@ const AdminDashboard = () => {
                         <h2 style={{ fontWeight: 900 }}>Operational Insights</h2>
                         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Real-time metrics for the current enrollment cycle.</p>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '2rem' }}>
                         <div className="glass-panel" style={{ padding: '2.5rem', borderLeft: '6px solid var(--primary)', background: 'rgba(255,255,255,0.01)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                                 <Users size={24} color="var(--primary)" />
@@ -343,8 +346,19 @@ const AdminDashboard = () => {
                                 <ShieldCheck size={24} color="#22c55e" />
                                 <div style={{ fontSize: '0.65rem', fontWeight: 900, background: 'rgba(34,197,94,0.1)', color: '#22c55e', padding: '2px 8px' }}>VALID_ENTRIES</div>
                             </div>
-                            <div style={{ fontSize: '2.8rem', fontWeight: 900, lineHeight: 1 }}>{submissions.filter(s => !s.archived).length}</div>
+                            <div style={{ fontSize: '2.8rem', fontWeight: 900, lineHeight: 1 }}>{submissions.filter(s => !s.archived && s.fyId === activeFY?.id).length}</div>
                             <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.8rem', fontWeight: 700 }}>Enrollments for the active financial year.</p>
+                        </div>
+
+                        <div className="glass-panel" style={{ padding: '2.5rem', borderLeft: '6px solid #f59e0b', background: 'rgba(255,255,255,0.01)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                                <RotateCcw size={24} color="#f59e0b" />
+                                <div style={{ fontSize: '0.65rem', fontWeight: 900, background: 'rgba(245,158,11,0.1)', color: '#f59e0b', padding: '2px 8px' }}>PENDING</div>
+                            </div>
+                            <div style={{ fontSize: '2.8rem', fontWeight: 900, lineHeight: 1 }}>
+                                {faculty.filter(f => f.status !== 'disabled' && !submissions.some(s => s.email === f.email && s.fyId === activeFY?.id && !s.archived)).length}
+                            </div>
+                            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.8rem', fontWeight: 700 }}>Active staff awaiting data submission.</p>
                         </div>
 
                         <div className="glass-panel" style={{ padding: '2.5rem', borderLeft: '6px solid #ef4444', background: 'rgba(255,255,255,0.01)' }}>
@@ -390,7 +404,7 @@ const AdminDashboard = () => {
                         <h2 style={{ fontWeight: 900 }}>Financial Years</h2>
                         <button className="btn btn-primary" onClick={openCreate}><Plus /> Add New Year</button>
                     </div>
-                    <div className="table-responsive">
+                    <div className="registry-table-container">
                         <table className="data-table">
                             <thead><tr><th>Year</th><th>Status</th><th>Coverage Options</th><th>Family Limits</th><th>Actions</th></tr></thead>
                             <tbody>
@@ -457,6 +471,40 @@ const AdminDashboard = () => {
                             </tbody>
                         </table>
                     </div>
+
+                    {/* MOBILE YEARS VIEW */}
+                    <div className="registry-grid">
+                        {years.filter(y => !y.isArchived).map(y => (
+                            <div key={y.id} className="registry-card">
+                                <div className="card-header">
+                                    <div style={{ fontWeight: 900, fontSize: '1.4rem' }}>{y.name}</div>
+                                    <div style={{ color: y.enabled ? '#22c55e' : '#ef4444', fontSize: '0.65rem', fontWeight: 900, border: '1px solid currentColor', padding: '0.3rem 0.6rem' }}>
+                                        {y.enabled ? 'ACTIVE' : 'DISABLED'}
+                                    </div>
+                                </div>
+                                <div className="card-info">
+                                    <div className="info-item">
+                                        <label>Dep. Limits</label>
+                                        <span>CH: {y.maxChildren} / PA: {y.maxParents}</span>
+                                    </div>
+                                    <div className="info-item">
+                                        <label>Tiers</label>
+                                        <span>{y.policies?.length || 0} Layers</span>
+                                    </div>
+                                </div>
+                                <div className="card-actions" style={{ marginTop: '1.5rem' }}>
+                                    <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => openEdit(y)}>EDIT</button>
+                                    <button className="btn btn-ghost" style={{ border: '1px solid var(--border-glass)', padding: '0.8rem' }} onClick={() => {
+                                        setAlertConfig({
+                                            title: 'Archive Year',
+                                            text: `Archive ${y.name}?`,
+                                            onConfirm: () => archiveYear(y)
+                                        });
+                                    }}><Archive size={18} /></button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
 
@@ -514,9 +562,9 @@ const AdminDashboard = () => {
                             <button className="btn btn-primary" style={{ flex: 1 }} onClick={exportCSV}><Download /> Export CSV</button>
                         </div>
                     </div>
-                    <div className="table-responsive">
+                    <div className="registry-table-container">
                         <table className="data-table">
-                            <thead><tr><th>Faculty Member</th><th>Status</th><th>Coverage</th><th>Premium</th><th>Lives</th><th>Actions</th></tr></thead>
+                            <thead><tr><th>Faculty Member</th><th>Status</th><th>Coverage</th><th>Premium</th><th>Lives</th><th style={{ textAlign: 'center' }}>Remove</th></tr></thead>
                             <tbody>
                                 {submissions.filter(s => {
                                     const matchesSearch = s.userName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -546,23 +594,63 @@ const AdminDashboard = () => {
                                             <td style={{ fontWeight: 700 }}>{s.coverageId}</td>
                                             <td style={{ fontWeight: 900, color: 'var(--primary)' }}>₹{s.premium?.toLocaleString()}</td>
                                             <td style={{ fontWeight: 800 }}>{(s.dependents?.length || 0) + 1}</td>
-                                            <td>
-                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                    <button className="btn btn-ghost" style={{ padding: '0.4rem', color: '#ef4444' }} onClick={() => {
-                                                        setAlertConfig({
-                                                            title: 'Remove Enrollment Record',
-                                                            type: 'danger',
-                                                            text: 'Delete this enrollment record?',
-                                                            onConfirm: async () => await deleteDoc(doc(db, "submissions", s.id))
-                                                        });
-                                                    }}><Trash2 size={18} /></button>
-                                                </div>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <button className="btn btn-ghost" style={{ padding: '0.4rem', color: '#ef4444' }} onClick={() => {
+                                                    setAlertConfig({
+                                                        title: 'Remove Enrollment Record',
+                                                        type: 'danger',
+                                                        text: 'Delete this enrollment record?',
+                                                        onConfirm: async () => await deleteDoc(doc(db, "submissions", s.id))
+                                                    });
+                                                }}><Trash2 size={18} /></button>
                                             </td>
                                         </tr>
                                     );
                                 })}
                             </tbody>
                         </table>
+                    </div>
+
+                    {/* MOBILE REGISTRY CARDS */}
+                    <div className="registry-grid">
+                        {submissions.filter(s => {
+                            const q = searchTerm.toLowerCase();
+                            return (s.userName?.toLowerCase().includes(q) || s.email?.toLowerCase().includes(q)) && !s.archived;
+                        }).map(s => (
+                            <div key={s.id} className="registry-card">
+                                <div className="card-header">
+                                    <div style={{ fontWeight: 900, fontSize: '1.2rem' }}>{s.userName}</div>
+                                    <div style={{ color: '#22c55e', fontSize: '0.65rem', fontWeight: 900, padding: '0.3rem 0.6rem', border: '1px solid currentColor' }}>
+                                        ENROLLED
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>{s.email}</div>
+                                <div className="card-info">
+                                    <div className="info-item">
+                                        <label>Coverage</label>
+                                        <span>{s.coverageId}</span>
+                                    </div>
+                                    <div className="info-item">
+                                        <label>Premium</label>
+                                        <span style={{ color: 'var(--primary)', fontWeight: 900 }}>₹{s.premium?.toLocaleString()}</span>
+                                    </div>
+                                    <div className="info-item">
+                                        <label>Lives</label>
+                                        <span>{(s.dependents?.length || 0) + 1}</span>
+                                    </div>
+                                </div>
+                                <div className="card-actions" style={{ marginTop: '1.2rem' }}>
+                                     <button className="btn btn-ghost" style={{ flex: 1, color: '#ef4444', border: '1px solid currentColor', fontSize: '0.75rem', fontWeight: 900, justifyContent: 'center' }} onClick={() => {
+                                        setAlertConfig({
+                                            title: 'Remove Enrollment',
+                                            type: 'danger',
+                                            text: `Delete enrollment for ${s.userName}?`,
+                                            onConfirm: async () => await deleteDoc(doc(db, "submissions", s.id))
+                                        });
+                                     }}>REMOVE ENTRY</button>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}
@@ -648,10 +736,10 @@ const AdminDashboard = () => {
                             </div>
                         </div>
 
-                        <div className="table-responsive">
+                        <div className="registry-table-container">
                             <table className="data-table">
                                 <thead>
-                                    <tr><th>Faculty Member</th><th>Department</th><th>Phone / DOJ</th><th>Access Status</th><th style={{ textAlign: 'center' }}>Manage</th></tr>
+                                    <tr><th>Faculty Member</th><th>Department</th><th>Phone / DOJ</th><th>Access Status</th><th style={{ textAlign: 'center' }}>Manage</th><th style={{ textAlign: 'center' }}>Delete</th></tr>
                                 </thead>
                                 <tbody>
                                     {faculty.filter(f => {
@@ -674,58 +762,121 @@ const AdminDashboard = () => {
                                                 <div style={{ opacity: 0.6 }}>{f.doj ? `Joined: ${f.doj}` : 'DOJ Not Set'}</div>
                                             </td>
                                             <td>
-                                                {f.status === 'disabled' ? (
-                                                    <div style={{ color: '#ef4444', fontSize: '0.7rem', fontWeight: 900 }}>DISABLED</div>
-                                                ) : (
-                                                    <div style={{ color: '#22c55e', fontSize: '0.7rem', fontWeight: 900 }}>ACTIVE / ACCESS</div>
-                                                )}
+                                                <div style={{ fontSize: '0.7rem', fontWeight: 900 }}>
+                                                    {f.status === 'disabled' ? (
+                                                        <span style={{ color: '#ef4444' }}>DISABLED</span>
+                                                    ) : submissions.some(s => s.email === f.email && s.fyId === activeFY?.id && !s.archived) ? (
+                                                        <span style={{ color: '#22c55e' }}>● ENROLLED</span>
+                                                    ) : (
+                                                        <span style={{ color: '#f59e0b' }}>● PENDING</span>
+                                                    )}
+                                                </div>
                                             </td>
-                                            <td>
-                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                     <label className="inst-switch" style={{ transform: 'scale(1)', cursor: 'pointer' }}>
-                                                         <input 
-                                                             type="checkbox" 
-                                                             checked={f.status !== 'disabled'} 
-                                                             onChange={async (e) => {
-                                                                 const checked = e.target.checked;
-                                                                 const ns = checked ? 'active' : 'disabled';
-                                                                 try {
-                                                                     const updatedList = faculty.map(it => it.id === f.id ? { ...it, status: ns } : it);
-                                                                     setFaculty(updatedList);
-                                                                     await updateDoc(doc(db, "users", f.id), { status: ns });
-                                                                 } catch (err) {
-                                                                     console.error("Admin toggle failed:", err);
-                                                                     setAlertConfig({ title: 'SYNC ERROR', type: 'danger', text: 'Institutional access update failed.' });
-                                                                 }
-                                                             }} 
-                                                         />
-                                                         <span className="inst-slider"></span>
-                                                     </label>
-                                                 </div>
-                                             </td>
-                                            <td>
-                                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                                    <button className="btn btn-ghost" style={{ color: '#ef4444', padding: '0.4rem' }} onClick={() => {
-                                                        setAlertConfig({
-                                                            title: 'Remove Personnel',
-                                                            type: 'danger',
-                                                            text: `Permanently delete ${f.name} and all their records?`,
-                                                            onConfirm: async () => {
+                                            <td style={{ textAlign: 'center' }}>
+                                                <label className="inst-switch">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={f.status !== 'disabled'} 
+                                                        onChange={async (e) => {
+                                                            const check = e.target.checked;
+                                                            const ns = check ? 'active' : 'disabled';
+                                                            try {
+                                                                setFaculty(faculty.map(it => it.id === f.id ? { ...it, status: ns } : it));
+                                                                await updateDoc(doc(db, "users", f.id), { status: ns });
+                                                            } catch (err) {
+                                                                setAlertConfig({ title: 'SYNC ERROR', type: 'danger', text: 'Institutional access update failed.' });
+                                                            }
+                                                        }} 
+                                                    />
+                                                    <span className="inst-slider"></span>
+                                                </label>
+                                            </td>
+                                            <td style={{ textAlign: 'center' }}>
+                                                <button className="btn btn-ghost" style={{ color: '#ef4444', padding: '0.5rem' }} onClick={() => {
+                                                    setAlertConfig({
+                                                        title: 'Delete Faculty',
+                                                        type: 'danger',
+                                                        text: `Permanently delete ${f.name}? This action cannot be undone.`,
+                                                        onConfirm: async () => {
+                                                            try {
                                                                 await deleteDoc(doc(db, "users", f.id));
                                                                 const qS = query(collection(db, "submissions"), where("userId", "==", f.id));
                                                                 const snapS = await getDocs(qS);
                                                                 for (const d of snapS.docs) await deleteDoc(doc(db, "submissions", d.id));
-                                                            }
-                                                        });
-                                                    }}>
-                                                        <Trash2 size={18} />
-                                                    </button>
-                                                </div>
+                                                            } catch (e) { console.error(e); }
+                                                        }
+                                                    });
+                                                }}>
+                                                    <Trash2 size={16} />
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
+                        </div>
+
+                        {/* MOBILE CARD VIEW */}
+                        <div className="registry-grid">
+                            {faculty.filter(f => {
+                                const q = facultySearch.toLowerCase();
+                                return f.name?.toLowerCase().includes(q) || f.department?.toLowerCase().includes(q);
+                            }).map(f => (
+                                <div key={f.id} className="registry-card" style={{ opacity: f.status === 'disabled' ? 0.6 : 1 }}>
+                                    <div className="card-header">
+                                        <div>
+                                            <div style={{ fontWeight: 900, fontSize: '1.2rem' }}>{f.name}</div>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700 }}>{f.email}</div>
+                                        </div>
+                                        <div style={{ 
+                                            fontSize: '0.65rem', fontWeight: 900, background: 'rgba(0,0,0,0.5)', padding: '0.3rem 0.6rem', border: '1px solid currentColor',
+                                            color: f.status === 'disabled' ? '#ef4444' : submissions.some(s => s.email === f.email && s.fyId === activeFY?.id && !s.archived) ? '#22c55e' : '#f59e0b'
+                                        }}>
+                                            {f.status === 'disabled' ? 'DISABLED' : submissions.some(s => s.email === f.email && s.fyId === activeFY?.id && !s.archived) ? 'ENROLLED' : 'PENDING'}
+                                        </div>
+                                    </div>
+                                    <div className="card-info">
+                                        <div className="info-item">
+                                            <label>Department</label>
+                                            <span>{f.department || 'N/A'}</span>
+                                        </div>
+                                        <div className="info-item">
+                                            <label>Phone</label>
+                                            <span>{f.phone || 'None'}</span>
+                                        </div>
+                                    </div>
+                                    <div className="card-actions">
+                                        <button className="btn btn-ghost" style={{ color: '#ef4444', border: '1px solid #ef4444', padding: '0.6rem' }} onClick={() => {
+                                            setAlertConfig({
+                                                title: 'Delete Faculty',
+                                                type: 'danger',
+                                                text: `Permanently delete ${f.name}?`,
+                                                onConfirm: async () => {
+                                                     try {
+                                                        await deleteDoc(doc(db, "users", f.id));
+                                                        const qS = query(collection(db, "submissions"), where("userId", "==", f.id));
+                                                        const snapS = await getDocs(qS);
+                                                        for (const d of snapS.docs) await deleteDoc(doc(db, "submissions", d.id));
+                                                    } catch (e) { console.error(e); }
+                                                }
+                                            });
+                                        }}><Trash2 size={18} /></button>
+                                        <label className="inst-switch" style={{ transform: 'scale(1.2)' }}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={f.status !== 'disabled'} 
+                                                onChange={async (e) => {
+                                                    const check = e.target.checked;
+                                                    const ns = check ? 'active' : 'disabled';
+                                                    setFaculty(faculty.map(it => it.id === f.id ? { ...it, status: ns } : it));
+                                                    await updateDoc(doc(db, "users", f.id), { status: ns });
+                                                }} 
+                                            />
+                                            <span className="inst-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                         {faculty.filter(f => {
                             const q = facultySearch.toLowerCase();
@@ -747,20 +898,18 @@ const AdminDashboard = () => {
                         <h2 style={{ fontWeight: 900 }}>Password Reset Hub</h2>
                         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Send password reset links to any faculty member</p>
                     </div>
-                    <div style={{ flex: 1, maxWidth: '600px', position: 'relative' }}>
+
+                    <div style={{ maxWidth: '600px', position: 'relative', marginBottom: '3rem' }}>
                         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                             <div style={{ position: 'relative', flex: 1 }}>
                                 <Search size={18} style={{ position: 'absolute', left: '15px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                                 <input className="glass-panel" style={{ width: '100%', padding: '1rem 1rem 1rem 3.5rem', fontSize: '0.9rem', fontWeight: 700 }} placeholder="Search faculty email..." value={facultySearch} onChange={e => setFacultySearch(e.target.value)} />
                             </div>
-                            <button 
-                                className={`btn ${isFilterOpen ? 'btn-primary' : 'btn-ghost'}`} 
-                                style={{ padding: '1rem', border: '1px solid var(--border-glass)' }}
-                                onClick={() => setIsFilterOpen(!isFilterOpen)}
-                            >
+                            <button className={`btn ${isFilterOpen ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '1rem', border: '1px solid var(--border-glass)' }} onClick={() => setIsFilterOpen(!isFilterOpen)}>
                                 <Settings size={22} />
                             </button>
                         </div>
+
                         {isFilterOpen && (
                             <div className="filter-popover" style={{ width: '360px' }}>
                                 <div style={{ marginBottom: '1.5rem' }}>
@@ -779,18 +928,18 @@ const AdminDashboard = () => {
                                         <input type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem', color: 'white', fontSize: '0.85rem', fontWeight: 700 }} value={dojFilter} onChange={e => setDojFilter(e.target.value)} />
                                     </div>
                                 </div>
-
                                 <button className="btn btn-ghost" style={{ width: '100%', color: '#ef4444', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900, border: '1px solid var(--border-glass)', padding: '0.8rem' }} onClick={() => { setYearFilter(""); setMonthFilter(""); setDojFilter(""); setIsFilterOpen(false); }}>CLEAR ALL FILTERS</button>
                             </div>
                         )}
                     </div>
-                    <div className="table-responsive">
+
+                    <div className="registry-table-container">
                         <table className="data-table">
-                            <thead><tr><th>Name</th><th>Email</th><th>Actions</th></tr></thead>
+                            <thead><tr><th>Name</th><th>Email</th><th style={{ textAlign: 'center' }}>Manage Access</th></tr></thead>
                             <tbody>
                                 {faculty.filter(f => {
                                     const q = facultySearch.toLowerCase();
-                                    const matchesSearch = f.email?.toLowerCase().includes(q) || f.name?.toLowerCase().includes(q) || f.doj?.includes(q) || f.phone?.includes(q);
+                                    const matchesSearch = f.email?.toLowerCase().includes(q) || f.name?.toLowerCase().includes(q);
                                     const matchesDate = !dojFilter || f.doj === dojFilter;
                                     const matchesYear = !yearFilter || f.doj?.startsWith(yearFilter);
                                     const matchesMonth = !monthFilter || f.doj?.includes(`-${monthFilter}-`);
@@ -799,18 +948,32 @@ const AdminDashboard = () => {
                                     <tr key={f.id}>
                                         <td style={{ fontWeight: 900 }}>{f.name}</td>
                                         <td>{f.email}</td>
-                                        <td>
-                                            <button className="btn btn-ghost" style={{ color: 'var(--primary)', border: '2px solid var(--primary)', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1.2rem' }} onClick={() => {
-                                                setSelectedUserToReset(f);
-                                                setManualPass({ next: '', confirm: '' });
-                                            }}>
-                                                <Key size={16} /> Reset Password
+                                        <td style={{ textAlign: 'center' }}>
+                                            <button className="btn btn-ghost" style={{ color: 'var(--primary)', border: '2px solid var(--primary)', padding: '0.6rem 1.2rem' }} onClick={() => { setSelectedUserToReset(f); setManualPass({ next:'', confirm:'' }); }}>
+                                                <Key size={16} /> Reset PIN
                                             </button>
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+
+                    <div className="registry-grid">
+                        {faculty.filter(f => {
+                            const q = facultySearch.toLowerCase();
+                            return f.name?.toLowerCase().includes(q) || f.email?.toLowerCase().includes(q);
+                        }).map(f => (
+                            <div key={f.id} className="registry-card">
+                                <div className="card-header" style={{ border: 'none', padding: 0 }}>
+                                    <div style={{ fontWeight: 900, fontSize: '1.2rem' }}>{f.name}</div>
+                                </div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.2rem' }}>{f.email}</div>
+                                <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => { setSelectedUserToReset(f); setManualPass({ next:'', confirm:'' }); }}>
+                                    <Key size={18} /> RESET PIN
+                                </button>
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}
@@ -899,17 +1062,29 @@ const AdminDashboard = () => {
                         </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem', marginBottom: '2.5rem' }}>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>SPOUSE PREM</label>
-                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.spousePremium || 0} onChange={e => setNewFY({ ...newFY, spousePremium: Number(e.target.value) })} placeholder="₹" />
+                            <div className="glass-panel" style={{ padding: '1.2rem', opacity: newFY.allowSpouse ? 1 : 0.5 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 900 }}>ALLOW SPOUSE</label>
+                                    <input type="checkbox" checked={newFY.allowSpouse} onChange={e => setNewFY({ ...newFY, allowSpouse: e.target.checked })} style={{ width: '18px', height: '18px' }} />
+                                </div>
+                                <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 900, marginBottom: '0.5rem', opacity: 0.6 }}>PREMIUM</label>
+                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontSize: '0.9rem' }} value={newFY.spousePremium || 0} onChange={e => setNewFY({ ...newFY, spousePremium: Number(e.target.value) })} placeholder="₹" disabled={!newFY.allowSpouse} />
                             </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>CHILD PREM (EA)</label>
-                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.childPremium || 0} onChange={e => setNewFY({ ...newFY, childPremium: Number(e.target.value) })} placeholder="₹" />
+                            <div className="glass-panel" style={{ padding: '1.2rem', opacity: newFY.allowChildren ? 1 : 0.5 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 900 }}>ALLOW CHILDREN</label>
+                                    <input type="checkbox" checked={newFY.allowChildren} onChange={e => setNewFY({ ...newFY, allowChildren: e.target.checked })} style={{ width: '18px', height: '18px' }} />
+                                </div>
+                                <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 900, marginBottom: '0.5rem', opacity: 0.6 }}>PREMIUM (EA)</label>
+                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontSize: '0.9rem' }} value={newFY.childPremium || 0} onChange={e => setNewFY({ ...newFY, childPremium: Number(e.target.value) })} placeholder="₹" disabled={!newFY.allowChildren} />
                             </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>PARENT PREM (EA)</label>
-                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.parentPremium || 0} onChange={e => setNewFY({ ...newFY, parentPremium: Number(e.target.value) })} placeholder="₹" />
+                            <div className="glass-panel" style={{ padding: '1.2rem', opacity: newFY.allowParents ? 1 : 0.5 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 900 }}>ALLOW PARENTS</label>
+                                    <input type="checkbox" checked={newFY.allowParents} onChange={e => setNewFY({ ...newFY, allowParents: e.target.checked })} style={{ width: '18px', height: '18px' }} />
+                                </div>
+                                <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 900, marginBottom: '0.5rem', opacity: 0.6 }}>PREMIUM (EA)</label>
+                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontSize: '0.9rem' }} value={newFY.parentPremium || 0} onChange={e => setNewFY({ ...newFY, parentPremium: Number(e.target.value) })} placeholder="₹" disabled={!newFY.allowParents} />
                             </div>
                         </div>
 
@@ -980,47 +1155,44 @@ const AdminDashboard = () => {
                             <p style={{ fontSize: '0.8rem' }}>Move a financial year to the archive to generate permanent reports.</p>
                         </div>
                     ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div className="registry-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100%, 1fr))', gap: '1.5rem' }}>
                             {years.filter(y => y.isArchived).map(y => (
-                                <div key={y.id} className="glass-panel" style={{ 
-                                    padding: '1.2rem 2.5rem', 
-                                    border: '2px solid var(--border-glass)', 
-                                    display: 'flex', 
-                                    alignItems: 'center', 
-                                    justifyContent: 'space-between',
-                                    transition: 'transform 0.2s ease',
-                                    background: 'rgba(255,255,255,0.01)'
-                                }} onMouseEnter={e => e.currentTarget.style.transform = 'translateX(12px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateX(0)'}>
-                                    
-                                    <div style={{ display: 'flex', gap: '5rem', alignItems: 'center' }}>
-                                        <div style={{ minWidth: '130px' }}>
-                                            <div style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--primary)', letterSpacing: '2px' }}>YEAR</div>
-                                            <div style={{ fontSize: '1.5rem', fontWeight: 900 }}>FY {y.name}</div>
-                                        </div>
-                                        
+                                <div key={y.id} className="registry-card" style={{ 
+                                    padding: '1.5rem', 
+                                    background: 'rgba(255,255,255,0.01)',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '1.5rem'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                         <div>
-                                            <div style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>ARCHIVED DATE</div>
-                                            <div style={{ fontWeight: 900, fontSize: '0.95rem' }}>{y.archivedAt?.toDate().toLocaleDateString() || 'N/A'}</div>
+                                            <div style={{ fontWeight: 900, fontSize: '1.8rem', letterSpacing: '2px' }}>{y.name}</div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginTop: '0.5rem' }}>
+                                                <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', fontSize: '0.65rem', fontWeight: 900, padding: '0.3rem 0.8rem', border: '1px solid #ef4444' }}>
+                                                    LOCKED_ARCHIVE
+                                                </div>
+                                                <div style={{ fontSize: '0.7rem', fontWeight: 700, opacity: 0.6 }}>
+                                                    {submissions.filter(s => s.fyId === y.id).length} Verified Records
+                                                </div>
+                                            </div>
                                         </div>
-
-                                        <div style={{ padding: '0.4rem 1.2rem', border: '1px solid var(--primary)', fontSize: '0.65rem', fontWeight: 900, color: 'var(--primary)', background: 'rgba(99,102,241,0.05)' }}>
-                                            DATA SAVED
-                                        </div>
+                                        <Archive size={32} color="#ef4444" style={{ opacity: 0.5 }} />
                                     </div>
 
-                                    <div style={{ display: 'flex', gap: '1rem' }}>
-                                        <button className="btn btn-primary" style={{ padding: '0.7rem 1.8rem', fontSize: '0.75rem' }} onClick={() => {
-                                            const h = "Name,EmpId,Email,Dept,Coverage,Premium,Lives\n";
-                                            const b = submissions.filter(s => s.fyId === y.id).map(s => 
-                                                `"${s.userName}","${s.empId}","${s.email}","${s.department}","${s.coverageId}","${s.premium}","${(s.dependents?.length || 0) + 1}"`
-                                            ).join("\n");
+                                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                                        <button className="btn btn-primary" style={{ padding: '0.7rem 1.8rem', fontSize: '0.75rem', flex: 1, minWidth: '200px', justifyContent: 'center' }} onClick={() => {
+                                            const h = "Name,Gender,DOJ,EmpId,Email,Dept,Designation,Phone,Coverage,Premium,Lives,Dependents_List\n";
+                                            const b = submissions.filter(s => s.fyId === y.id).map(s => {
+                                                const deps = s.dependents?.map(d => `${d.name} (${d.type} - ${d.gender})`).join(" | ") || "None";
+                                                return `"${s.userName}","${s.gender || ''}","${s.doj || ''}","${s.empId || ''}","${s.email}","${s.department || ''}","${s.designation || ''}","${s.phone || ''}","${s.coverageId}","${s.premium}","${(s.dependents?.length || 0) + 1}","${deps}"`;
+                                            }).join("\n");
                                             const blob = new Blob([h + b], { type: 'text/csv' });
-                                            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `Global_Audit_Report_${y.name}.csv`; a.click();
+                                            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `RECORDS_FY_${y.name}.csv`; a.click();
                                         }}>
-                                            <Download size={16} /> GET_REPORT
+                                            <Download size={16} /> GENERATE CSV REPORT
                                         </button>
 
-                                        <button className="btn btn-ghost" style={{ border: '2px solid var(--primary)', color: 'var(--primary)', padding: '0.7rem 1.8rem', fontSize: '0.75rem' }} onClick={() => {
+                                        <button className="btn btn-ghost" style={{ border: '2px solid var(--primary)', color: 'var(--primary)', padding: '0.7rem 1.5rem', fontSize: '0.75rem', flex: '0 1 auto', justifyContent: 'center' }} onClick={() => {
                                             setAlertConfig({
                                                 title: 'RESTORE YEAR',
                                                 text: `Restore ${y.name} to the active registry? This will make archived submissions editable again.`,
@@ -1030,7 +1202,7 @@ const AdminDashboard = () => {
                                             <RotateCcw size={16} /> RESTORE
                                         </button>
 
-                                        <button className="btn btn-ghost" style={{ color: '#ef4444', border: '2px solid rgba(239,68,68,0.2)', padding: '0.7rem 1.2rem', fontSize: '0.75rem' }} onClick={() => {
+                                        <button className="btn btn-ghost" style={{ color: '#ef4444', border: '2px solid rgba(239,68,68,0.2)', padding: '0.7rem 1rem', fontSize: '0.75rem', flex: '0 1 auto', justifyContent: 'center' }} onClick={() => {
                                             setAlertConfig({
                                                 title: 'PERMANENT DELETE',
                                                 type: 'danger',
@@ -1038,7 +1210,7 @@ const AdminDashboard = () => {
                                                 onConfirm: async () => await deleteDoc(doc(db, "financialYears", y.id))
                                             });
                                         }}>
-                                            <Trash2 size={16} /> DELETE FOREVER
+                                            <Trash2 size={16} />
                                         </button>
                                     </div>
                                 </div>

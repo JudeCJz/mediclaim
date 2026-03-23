@@ -408,9 +408,9 @@ const FacultyDashboard = () => {
                             <h2 style={{ fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus size={26} color="var(--primary)" /> Insured Beneficiaries</h2>
                             {!isLocked && (
                                 <div style={{ display: 'flex', gap: '1rem' }}>
-                                    <button className="btn btn-ghost" style={{ fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} onClick={() => addDep('spouse')}>+ SPOUSE</button>
-                                    <button className="btn btn-ghost" style={{ fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} onClick={() => addDep('child')}>+ CHILD</button>
-                                    <button className="btn btn-ghost" style={{ fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} onClick={() => addDep('parent')}>+ PARENT</button>
+                                    {selectedFY.allowSpouse && <button className="btn btn-ghost" style={{ fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} onClick={() => addDep('spouse')}>+ SPOUSE</button>}
+                                    {selectedFY.allowChildren && <button className="btn btn-ghost" style={{ fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} onClick={() => addDep('child')}>+ CHILD</button>}
+                                    {selectedFY.allowParents && <button className="btn btn-ghost" style={{ fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} onClick={() => addDep('parent')}>+ PARENT</button>}
                                 </div>
                             )}
                         </div>

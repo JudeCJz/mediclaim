@@ -444,3 +444,69 @@ select {
     border-bottom: 1px solid rgba(var(--primary-rgb), 0.1);
     padding-bottom: 0.5rem;
 }
+/* --- RESPONSIVE REGISTRY: TABLE TO CARDS --- */
+.registry-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    width: 100%;
+}
+
+.registry-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+    padding: 2rem;
+    background: rgba(255,255,255,0.01);
+    position: relative;
+    border: 1px solid var(--border-glass);
+    box-shadow: 6px 6px 0px rgba(0,0,0,0.3);
+}
+
+.registry-card .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 2px dashed var(--border-glass);
+    padding-bottom: 1.2rem;
+}
+
+.registry-card .card-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+}
+
+.registry-card .info-item label {
+    display: block;
+    font-size: 0.6rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 0.3rem;
+}
+
+.registry-card .info-item span {
+    font-weight: 800;
+    font-size: 0.9rem;
+}
+
+.registry-card .card-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding-top: 1.2rem;
+    border-top: 2px dashed var(--border-glass);
+}
+
+@media (min-width: 1025px) {
+    .registry-grid {
+        display: none;
+    }
+}
+
+@media (max-width: 1024px) {
+    .registry-table-container {
+        display: none;
+    }
+}

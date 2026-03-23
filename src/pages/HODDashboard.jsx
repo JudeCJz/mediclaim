@@ -44,6 +44,9 @@ const HODDashboard = () => {
         spousePremium: 0,
         childPremium: 0,
         parentPremium: 0,
+        allowSpouse: true,
+        allowChildren: true,
+        allowParents: true,
         deadline: '',
         enabled: true,
         policies: [
@@ -594,9 +597,9 @@ const HODDashboard = () => {
                             </div>
                         </div>
 
-                        <div className="table-responsive">
+                        <div className="registry-table-container">
                             <table className="data-table">
-                                <thead><tr><th>Faculty Member</th><th>Institutional Email</th><th style={{ textAlign: 'center' }}>Actions</th></tr></thead>
+                                <thead><tr><th>Faculty Member</th><th>Institutional Email</th><th style={{ textAlign: 'center' }}>Manage Access</th><th style={{ textAlign: 'center' }}>Remove</th></tr></thead>
                                 <tbody>
                                     {faculty.filter(f => {
                                         const matchesSearch = f.name?.toLowerCase().includes(facultySearch.toLowerCase()) || f.email?.toLowerCase().includes(facultySearch.toLowerCase());
@@ -609,55 +612,105 @@ const HODDashboard = () => {
                                             <td style={{ fontWeight: 900 }}>
                                                 {f.name}
                                                 <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.2rem' }}>
-                                                    <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 800 }}>DEPT: {f.department}</div>
-                                                    <div style={{ fontSize: '0.65rem', color: f.status === 'disabled' ? '#ef4444' : '#22c55e', fontWeight: 900 }}>{f.status || 'active'}</div>
+                                                    <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 800 }}>DEPT: {f.department || 'N/A'}</div>
+                                                    <div style={{ fontSize: '0.65rem', color: f.status === 'disabled' ? '#ef4444' : '#22c55e', fontWeight: 900 }}>{f.status?.toUpperCase() || 'ACTIVE'}</div>
                                                 </div>
                                             </td>
                                             <td style={{ fontSize: '0.8rem', opacity: 0.7 }}>{f.email}</td>
-                                             <td>
-                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1.5rem' }}>
-                                                     <label className="inst-switch" style={{ transform: 'scale(1)', cursor: 'pointer' }}>
-                                                         <input 
-                                                             type="checkbox" 
-                                                             checked={f.status !== 'disabled'} 
-                                                             onChange={async (e) => {
-                                                                 const checked = e.target.checked;
-                                                                 const ns = checked ? 'active' : 'disabled';
-                                                                 try {
-                                                                     const updatedList = faculty.map(it => it.id === f.id ? { ...it, status: ns } : it);
-                                                                     setFaculty(updatedList);
-                                                                     await updateDoc(doc(db, "users", f.id), { status: ns });
-                                                                 } catch (err) {
-                                                                     console.error("Admin toggle failed:", err);
-                                                                     setAlertConfig({ title: 'SYNC ERROR', type: 'danger', text: 'Access update failed.' });
-                                                                 }
-                                                             }} 
-                                                         />
-                                                         <span className="inst-slider"></span>
-                                                     </label>
-                                                     <button 
-                                                         className="btn btn-ghost" 
-                                                         style={{ padding: '0.4rem', color: '#ef4444', opacity: 0.6 }}
-                                                         onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                                                         onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
-                                                         onClick={() => {
-                                                             setAlertConfig({
-                                                                 title: 'DELETE ACCOUNT',
-                                                                 text: `Permanently delete ${f.name} from the central database?`,
-                                                                 onConfirm: async () => {
-                                                                     try { await deleteDoc(doc(db, "users", f.id)); } catch (err) { console.error(err); }
-                                                                 }
-                                                             });
-                                                         }}
-                                                     >
-                                                         <Trash2 size={16} />
-                                                     </button>
-                                                 </div>
+                                             <td style={{ textAlign: 'center' }}>
+                                                 <label className="inst-switch">
+                                                     <input 
+                                                         type="checkbox" 
+                                                         checked={f.status !== 'disabled'} 
+                                                         onChange={async (e) => {
+                                                             const checked = e.target.checked;
+                                                             const ns = checked ? 'active' : 'disabled';
+                                                             try {
+                                                                 setFaculty(faculty.map(it => it.id === f.id ? { ...it, status: ns } : it));
+                                                                 await updateDoc(doc(db, "users", f.id), { status: ns });
+                                                             } catch (err) {
+                                                                 setAlertConfig({ title: 'SYNC ERROR', type: 'danger', text: 'Access update failed.' });
+                                                             }
+                                                         }} 
+                                                     />
+                                                     <span className="inst-slider"></span>
+                                                 </label>
+                                             </td>
+                                             <td style={{ textAlign: 'center' }}>
+                                                 <button 
+                                                     className="btn btn-ghost" 
+                                                     style={{ padding: '0.4rem', color: '#ef4444' }}
+                                                     onClick={() => {
+                                                         setAlertConfig({
+                                                             title: 'DELETE ACCOUNT',
+                                                             text: `Permanently delete ${f.name}?`,
+                                                             onConfirm: async () => {
+                                                                 try { await deleteDoc(doc(db, "users", f.id)); } catch (err) { console.error(err); }
+                                                             }
+                                                         });
+                                                     }}
+                                                 >
+                                                     <Trash2 size={16} />
+                                                 </button>
                                              </td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
+                        </div>
+
+                        {/* MOBILE CARD VIEW */}
+                        <div className="registry-grid">
+                            {faculty.filter(f => {
+                                const q = facultySearch.toLowerCase();
+                                return f.name?.toLowerCase().includes(q) || f.email?.toLowerCase().includes(q);
+                            }).map(f => (
+                                <div key={f.id} className="registry-card" style={{ opacity: f.status === 'disabled' ? 0.6 : 1 }}>
+                                    <div className="card-header">
+                                        <div>
+                                            <div style={{ fontWeight: 900, fontSize: '1.2rem' }}>{f.name}</div>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700 }}>{f.email}</div>
+                                        </div>
+                                        <div style={{ color: f.status === 'disabled' ? '#ef4444' : '#22c55e', fontSize: '0.65rem', fontWeight: 900, border: '1px solid currentColor', padding: '0.3rem 0.6rem' }}>
+                                            {f.status?.toUpperCase() || 'ACTIVE'}
+                                        </div>
+                                    </div>
+                                    <div className="card-info">
+                                        <div className="info-item">
+                                            <label>Department</label>
+                                            <span>{f.department || 'N/A'}</span>
+                                        </div>
+                                        <div className="info-item">
+                                            <label>Personnel ID</label>
+                                            <span>{f.empId || 'Not Set'}</span>
+                                        </div>
+                                    </div>
+                                    <div className="card-actions">
+                                        <button className="btn btn-ghost" style={{ color: '#ef4444', border: '1px solid #ef4444', padding: '0.6rem' }} onClick={() => {
+                                            setAlertConfig({
+                                                title: 'Delete Personnel',
+                                                text: `Permanently delete ${f.name}?`,
+                                                onConfirm: async () => {
+                                                    try { await deleteDoc(doc(db, "users", f.id)); } catch (err) { console.error(err); }
+                                                }
+                                            });
+                                        }}><Trash2 size={18} /></button>
+                                        <label className="inst-switch" style={{ transform: 'scale(1.2)' }}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={f.status !== 'disabled'} 
+                                                onChange={async (e) => {
+                                                    const checked = e.target.checked;
+                                                    const ns = checked ? 'active' : 'disabled';
+                                                    setFaculty(faculty.map(it => it.id === f.id ? { ...it, status: ns } : it));
+                                                    await updateDoc(doc(db, "users", f.id), { status: ns });
+                                                }} 
+                                            />
+                                            <span className="inst-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>
@@ -887,51 +940,78 @@ const HODDashboard = () => {
 
             {showFYModal && (
                 <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(10px)' }}>
-                    <div className="glass-panel" style={{ width: '90%', maxWidth: '600px', padding: '3rem' }}>
-                        <h2 style={{ fontWeight: 900, marginBottom: '2rem' }}>{editingFYId ? 'Update Enrollment Session' : 'Setup New Enrollment'}</h2>
-                        <div style={{ display: 'grid', gap: '1.5rem' }}>
-                            <div className="f-group">
-                                <label style={{ fontSize: '0.7rem', fontWeight: 900 }}>Financial Year Name</label>
-                                <input className="glass-panel" style={{ width: '100%', padding: '0.8rem' }} value={newFY.name} onChange={e => setNewFY({...newFY, name: e.target.value})} placeholder="e.g. 2026-2027" />
+                    <div className="glass-panel" style={{ width: '90%', maxWidth: '850px', padding: '3.5rem', border: '5px solid #000', boxShadow: '20px 20px 0px #000', position: 'relative', overflowY: 'auto', maxHeight: '90vh' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2.5rem', alignItems: 'center' }}>
+                            <h2 style={{ fontWeight: 900 }}>{editingFYId ? 'Update Enrollment Session' : 'Setup New Enrollment'}</h2>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '2.5rem' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>ENROLLMENT NAME</label>
+                                <input className="glass-panel" style={{ width: '100%', padding: '1rem' }} placeholder="EX: 2026-27" value={newFY.name} onChange={e => setNewFY({ ...newFY, name: e.target.value })} />
                             </div>
-                            <div className="f-group">
-                                <label style={{ fontSize: '0.7rem', fontWeight: 900 }}>Submission Deadline Date</label>
-                                <input type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem' }} value={newFY.deadline} onChange={e => setNewFY({...newFY, deadline: e.target.value})} />
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
-                                <div className="f-group">
-                                    <label style={{ fontSize: '0.6rem', fontWeight: 900 }}>SPOUSE PREM</label>
-                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.6rem' }} value={newFY.spousePremium || 0} onChange={e => setNewFY({...newFY, spousePremium: Number(e.target.value)})} placeholder="₹" />
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>CHILD LIMIT</label>
+                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.maxChildren} onChange={e => setNewFY({ ...newFY, maxChildren: Number(e.target.value) })} />
                                 </div>
-                                <div className="f-group">
-                                    <label style={{ fontSize: '0.6rem', fontWeight: 900 }}>CHILD PREM (EA)</label>
-                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.6rem' }} value={newFY.childPremium || 0} onChange={e => setNewFY({...newFY, childPremium: Number(e.target.value)})} placeholder="₹" />
-                                </div>
-                                <div className="f-group">
-                                    <label style={{ fontSize: '0.6rem', fontWeight: 900 }}>PARENT PREM (EA)</label>
-                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.6rem' }} value={newFY.parentPremium || 0} onChange={e => setNewFY({...newFY, parentPremium: Number(e.target.value)})} placeholder="₹" />
-                                </div>
-                            </div>
-                            <div style={{ marginTop: '1rem' }}>
-                                <label style={{ fontSize: '0.7rem', fontWeight: 900 }}>Available Insurance Plans</label>
-                                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                                    <input className="glass-panel" style={{ flex: 1, padding: '0.6rem' }} placeholder="Label (5 Lakhs)" value={tempPolicy.label} onChange={e => setTempPolicy({...tempPolicy, label: e.target.value})} />
-                                    <input type="number" className="glass-panel" style={{ width: '100px', padding: '0.6rem' }} placeholder="₹" value={tempPolicy.premium} onChange={e => setTempPolicy({...tempPolicy, premium: e.target.value})} />
-                                    <button className="btn btn-primary" onClick={() => { if(tempPolicy.label && tempPolicy.premium) { setNewFY({...newFY, policies: [...newFY.policies, { ...tempPolicy, id: Date.now() }]}); setTempPolicy({label:'', premium:''}); } }}>+</button>
-                                </div>
-                                <div style={{ marginTop: '1rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                                    {newFY.policies.map(p => (
-                                        <div key={p.id} style={{ padding: '0.4rem 0.8rem', background: 'var(--border-glass)', border: '1px solid var(--primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                            <span style={{ fontSize: '0.7rem', fontWeight: 900 }}>{p.label} (₹{p.premium})</span>
-                                            <X size={12} style={{ cursor: 'pointer' }} onClick={() => setNewFY({...newFY, policies: newFY.policies.filter(x => x.id !== p.id)})} />
-                                        </div>
-                                    ))}
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.75rem' }}>PARENT LIMIT</label>
+                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={newFY.maxParents} onChange={e => setNewFY({ ...newFY, maxParents: Number(e.target.value) })} />
                                 </div>
                             </div>
                         </div>
-                        <div style={{ marginTop: '3rem', display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-                            <button className="btn btn-ghost" onClick={() => setShowFYModal(false)}>CANCEL</button>
-                            <button className="btn btn-primary" onClick={saveFY} disabled={isSavingFY}>{isSavingFY ? 'SAVING...' : 'Save Settings'}</button>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem', marginBottom: '2.5rem' }}>
+                            <div className="glass-panel" style={{ padding: '1.2rem', opacity: newFY.allowSpouse ? 1 : 0.5 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 900 }}>ALLOW SPOUSE</label>
+                                    <input type="checkbox" checked={newFY.allowSpouse} onChange={e => setNewFY({ ...newFY, allowSpouse: e.target.checked })} style={{ width: '18px', height: '18px' }} />
+                                </div>
+                                <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 900, marginBottom: '0.5rem', opacity: 0.6 }}>PREMIUM</label>
+                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontSize: '0.9rem' }} value={newFY.spousePremium || 0} onChange={e => setNewFY({ ...newFY, spousePremium: Number(e.target.value) })} placeholder="₹" disabled={!newFY.allowSpouse} />
+                            </div>
+                            <div className="glass-panel" style={{ padding: '1.2rem', opacity: newFY.allowChildren ? 1 : 0.5 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 900 }}>ALLOW CHILDREN</label>
+                                    <input type="checkbox" checked={newFY.allowChildren} onChange={e => setNewFY({ ...newFY, allowChildren: e.target.checked })} style={{ width: '18px', height: '18px' }} />
+                                </div>
+                                <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 900, marginBottom: '0.5rem', opacity: 0.6 }}>PREMIUM (EA)</label>
+                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontSize: '0.9rem' }} value={newFY.childPremium || 0} onChange={e => setNewFY({ ...newFY, childPremium: Number(e.target.value) })} placeholder="₹" disabled={!newFY.allowChildren} />
+                            </div>
+                            <div className="glass-panel" style={{ padding: '1.2rem', opacity: newFY.allowParents ? 1 : 0.5 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 900 }}>ALLOW PARENTS</label>
+                                    <input type="checkbox" checked={newFY.allowParents} onChange={e => setNewFY({ ...newFY, allowParents: e.target.checked })} style={{ width: '18px', height: '18px' }} />
+                                </div>
+                                <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 900, marginBottom: '0.5rem', opacity: 0.6 }}>PREMIUM (EA)</label>
+                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontSize: '0.9rem' }} value={newFY.parentPremium || 0} onChange={e => setNewFY({ ...newFY, parentPremium: Number(e.target.value) })} placeholder="₹" disabled={!newFY.allowParents} />
+                            </div>
+                        </div>
+
+                        <div style={{ borderTop: '2px dashed var(--border-glass)', paddingTop: '2.5rem' }}>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 900, marginBottom: '1.5rem' }}>CONFIGURE COVERAGE TIERS</h3>
+                            <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
+                                <input className="glass-panel" style={{ flex: 2, padding: '1rem', minWidth: '200px' }} placeholder="Label (Ex: 10 Lakhs)" value={tempPolicy.label} onChange={e => setTempPolicy({ ...tempPolicy, label: e.target.value })} />
+                                <input type="number" className="glass-panel" style={{ flex: 1, padding: '1rem', minWidth: '120px' }} placeholder="Premium" value={tempPolicy.premium} onChange={e => setTempPolicy({ ...tempPolicy, premium: e.target.value })} />
+                                <button className="btn btn-primary" style={{ padding: '0 2rem', height: '54px' }} onClick={() => { if(tempPolicy.label && tempPolicy.premium) { setNewFY({...newFY, policies: [...newFY.policies, { ...tempPolicy, id: Date.now() }]}); setTempPolicy({label:'', premium:''}); } }}>ADD TIER</button>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                {newFY.policies?.map(p => (
+                                    <div key={p.id} className="glass-panel" style={{ padding: '1rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)' }}>
+                                        <div style={{ fontWeight: 900 }}>{p.label} <span style={{ color: 'var(--primary)', marginLeft: '1rem' }}>₹{p.premium.toLocaleString()}</span></div>
+                                        <button className="btn btn-ghost" style={{ padding: '0.5rem', color: '#ef4444' }} onClick={() => setNewFY({...newFY, policies: newFY.policies.filter(x => x.id !== p.id)})}><X size={18} /></button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div style={{ marginTop: '4rem', display: 'flex', gap: '1.5rem' }}>
+                            <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setShowFYModal(false)}>CANCEL</button>
+                            <button className="btn btn-primary" style={{ flex: 2, justifyContent: 'center' }} onClick={saveFY} disabled={isSavingFY}>
+                                {isSavingFY ? 'SAVING...' : (editingFYId ? 'SAVE CHANGES' : 'START ENROLLMENT SESSION')}
+                            </button>
                         </div>
                     </div>
                 </div>
