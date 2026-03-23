@@ -535,10 +535,57 @@ const AdminDashboard = () => {
                         placeholder="e.g. Jude, Engineering, jude@college.edu"
                     />
                     <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                        <button className="btn btn-ghost" style={{ color: '#ef4444', flex: 1 }} onClick={processBulkDelete} disabled={isProcessing || !bulkData}>
+                        <button className="btn btn-primary" onClick={() => {
+                            const names = bulkData.split('\n').filter(r => r.trim().length > 5);
+                            if (names.length === 0) return setAlertConfig({ title: 'LIST IS EMPTY', text: 'Enter email addresses (or Name, Dept, Email rows) to mass enable accounts.' });
+                            setAlertConfig({
+                                title: 'CONFIRM MASS ENABLE',
+                                text: `Restore access for ${names.length} selected accounts?`,
+                                onConfirm: async () => {
+                                    try {
+                                        setIsProcessing(true);
+                                        for (const row of names) {
+                                            const email = row.includes(',') ? row.split(',')[2]?.trim() : row.trim();
+                                            const userRef = faculty.find(f => f.email === email);
+                                            if (userRef) await updateDoc(doc(db, 'users', userRef.id), { status: 'active' });
+                                        }
+                                        setAlertConfig({ title: 'ACCOUNTS ENABLED', text: 'All matched accounts are now active.' });
+                                    } catch(e) {
+                                        setAlertConfig({ title: 'ERROR', type: 'danger', text: 'Something went wrong during the update.' });
+                                    } finally { setIsProcessing(false); }
+                                }
+                            });
+                        }} style={{ background: '#22c55e', justifyContent: 'center', fontSize: '0.75rem' }} disabled={isProcessing || !bulkData}>
+                            MASS ENABLE
+                        </button>
+                        <button className="btn btn-primary" onClick={() => {
+                            const names = bulkData.split('\n').filter(r => r.trim().length > 5);
+                            if (names.length === 0) return setAlertConfig({ title: 'LIST IS EMPTY', text: 'Enter email addresses (or Name, Dept, Email rows) to mass disable accounts.' });
+                            setAlertConfig({
+                                title: 'CONFIRM MASS DISABLE',
+                                type: 'danger',
+                                text: `Disable access for ${names.length} selected accounts?`,
+                                onConfirm: async () => {
+                                    try {
+                                        setIsProcessing(true);
+                                        for (const row of names) {
+                                            const email = row.includes(',') ? row.split(',')[2]?.trim() : row.trim();
+                                            const userRef = faculty.find(f => f.email === email);
+                                            if (userRef) await updateDoc(doc(db, 'users', userRef.id), { status: 'disabled' });
+                                        }
+                                        setAlertConfig({ title: 'ACCOUNTS DISABLED', text: 'All matched accounts are now disabled.' });
+                                    } catch(e) {
+                                        setAlertConfig({ title: 'ERROR', type: 'danger', text: 'Something went wrong during the update.' });
+                                    } finally { setIsProcessing(false); }
+                                }
+                            });
+                        }} style={{ background: '#ef4444', justifyContent: 'center', fontSize: '0.75rem' }} disabled={isProcessing || !bulkData}>
+                            MASS DISABLE
+                        </button>
+                        <button className="btn btn-ghost" style={{ color: '#ef4444' }} onClick={processBulkDelete} disabled={isProcessing || !bulkData}>
                             {isProcessing ? <div className="btn-loader"><ShieldCheck size={20} /></div> : <><UserMinus size={18} /> Bulk Delete</>}
                         </button>
-                        <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={processBulk} disabled={isProcessing || !bulkData}>
+                        <button className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={processBulk} disabled={isProcessing || !bulkData}>
                             {isProcessing ? <div className="btn-loader"><ShieldCheck size={20} /></div> : 'Register Accounts'}
                         </button>
                     </div>
