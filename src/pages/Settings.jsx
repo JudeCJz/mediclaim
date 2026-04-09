@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { auth } from '../firebase';
-import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
+import api from '../api';
 import { Lock, ShieldCheck, Loader2, Save, Key, AlertCircle, CheckCircle, Eye, EyeOff, User } from 'lucide-react';
 
 const Settings = () => {
@@ -47,15 +46,16 @@ const Settings = () => {
 
         setIsUpdating(true);
         try {
-            const credential = EmailAuthProvider.credential(user.email, passwords.current);
-            await reauthenticateWithCredential(auth.currentUser, credential);
-            await updatePassword(auth.currentUser, passwords.next);
+            await api.put('/auth/update-password', {
+                currentPassword: passwords.current,
+                newPassword: passwords.next
+            });
             
             setMessage({ type: 'success', text: 'Password updated successfully.' });
             setPasswords({ current: '', next: '', confirm: '' });
         } catch (err) {
             console.error(err);
-            setMessage({ type: 'error', text: err.code?.includes('wrong-password') ? 'Current password incorrect.' : 'Request blocked by security.' });
+            setMessage({ type: 'error', text: err.response?.data?.msg || 'Request blocked by security.' });
         } finally {
             setIsUpdating(false);
         }
@@ -63,8 +63,8 @@ const Settings = () => {
 
     return (
         <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
-            <header style={{ marginBottom: '3rem', background: '#dc2626', padding: '1.5rem 2.5rem', boxShadow: '8px 8px 0px #000', border: '3px solid #000' }}>
-                <h1 style={{ fontSize: '2.5rem', fontWeight: 900, color: 'white', textTransform: 'uppercase', letterSpacing: '1px' }}>Settings</h1>
+            <header style={{ marginBottom: '3rem', background: 'var(--primary)', padding: '1.5rem 2.5rem', boxShadow: '8px 8px 0px #000', border: '3px solid #000' }}>
+                <h1 style={{ fontSize: '2.5rem', fontWeight: 900, color: 'white', textTransform: 'uppercase', letterSpacing: '1px' }}>Account Settings</h1>
             </header>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '2rem' }}>

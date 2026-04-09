@@ -4,10 +4,11 @@ import { AppProvider, useApp } from './context/AppContext';
 import Login from './pages/Login';
 import Sidebar from './components/Sidebar';
 import FacultyDashboard from './pages/FacultyDashboard';
-import HODDashboard from './pages/HODDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import History from './pages/History';
 import Settings from './pages/Settings';
+import SecurityInfo from './pages/SecurityInfo';
+import Agreement from './pages/Agreement';
 import { ShieldCheck, X } from 'lucide-react';
 
 import logo from './assets/logo.png';
@@ -97,7 +98,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/faculty" element={<Protected role="faculty"><FacultyDashboard /></Protected>} />
-          <Route path="/hod" element={<Protected role="hod"><HODDashboard /></Protected>} />
+          <Route path="/hod" element={<Protected role="hod"><AdminDashboard /></Protected>} />
           <Route path="/admin" element={<Protected role="admin"><AdminDashboard /></Protected>} />
           <Route path="/history" element={<Protected><History /></Protected>} />
           <Route path="/settings" element={<Protected><Settings /></Protected>} />

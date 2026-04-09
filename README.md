@@ -1,6 +1,6 @@
 # 🛡️ Mediclaim Management System
 
-A high-performance, mobile-optimized insurance enrollment and management platform built for educational institutions. Designed with a premium "glassmorphism" aesthetic and powered by a robust Firebase-Vite architecture.
+A high-performance, mobile-optimized insurance enrollment and management platform built for educational institutions. Designed with a premium "glassmorphism" aesthetic and powered by a robust Node.js, Express, and MongoDB backend.
 
 ## ✨ Key Features
 
@@ -8,31 +8,37 @@ A high-performance, mobile-optimized insurance enrollment and management platfor
 -   **HOD Dashboard**: Real-time enrollment tracking, department-wide personnel management, and automated email confirmation dispatch.
 -   **Admin Control Center**: Financial Year (Cycle) management, coverage tier configuration, and secure faculty account bulk registration.
 -   **Mobile-First Design**: Optimized for Android and high-density displays with responsive tables and touch-friendly controls.
--   **Firebase Integration**: Secure authentication and real-time Firestore database with resilient long-polling for restricted network environments.
+-   **MongoDB Integration**: Secure data persistence with Mongoose for efficient querying and management.
 
-## 🚀 Deployment Guide (Netlify)
+## 🚀 Getting Started
 
-This project is pre-configured for seamless deployment to **Netlify**.
+### Prerequisites
+- Node.js installed
+- MongoDB installed and running
 
-### 🛠️ Prerequisites
-1.  **Authorized Domain**: After deployment, add your Netlify URL to the **Authorized Domains** list in the Firebase Console (Authentication > Settings).
-2.  **Environment Variables**: It is recommended to move the configuration in `src/firebase.js` to Netlify environment variables if working in a public repository.
+### Installation
 
-### 📦 Build Settings
--   **Build command**: `npm run build`
--   **Publish directory**: `dist`
--   **Redirects**: Local `_redirects` file is pre-configured to handle React Router navigation.
+1.  **Backend Setup**:
+    ```bash
+    cd server
+    npm install
+    cp .env.example .env # Update with your MONGO_URI
+    npm start
+    ```
+
+2.  **Frontend Setup**:
+    ```bash
+    npm install
+    npm run dev
+    ```
 
 ## 🛠️ Technology Stack
 
 -   **Frontend**: React (Vite)
+-   **Backend**: Node.js, Express
+-   **Database**: MongoDB (Mongoose)
 -   **Icons**: Lucide React
 -   **Styling**: Vanilla CSS (Custom Glassmorphism Design System)
--   **Backend**: Firebase (Auth, Firestore)
-
-## 📄 Configuration
-
-See `src/firebase.js` for the core infrastructure setup. The system utilizes `experimentalForceLongPolling` to ensure database stability in high-security network environments.
 
 ---
 

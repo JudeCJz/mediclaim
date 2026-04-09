@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { db } from '../firebase';
-import { collection, addDoc, serverTimestamp, updateDoc, doc, query, where, getDocs, onSnapshot, orderBy } from 'firebase/firestore';
-import { Heart, UserPlus, Trash2, CheckCircle, ShieldCheck, Loader2, Save, Printer, User, Briefcase, X, AlertTriangle, ArrowLeft } from 'lucide-react';
+import api from '../api';
+import { Heart, UserPlus, Trash2, CheckCircle, ShieldCheck, Loader2, Save, Printer, User, Briefcase, X, AlertTriangle, ArrowLeft, Download } from 'lucide-react';
+import { generateEnrollmentPDF } from '../utils/pdfGenerator';
 
 const FacultyDashboard = () => {
-    const { user, isDemoMode, activeFY } = useApp();
+    const { user, isDemoMode, activeFY, socket, activeTab } = useApp();
     const [years, setYears] = useState([]);
     const [selectedFY, setSelectedFY] = useState(null);
     const [profile, setProfile] = useState({ empId: '', phone: '', department: '', designation: '', doj: '', gender: 'Male' });
@@ -14,6 +14,8 @@ const FacultyDashboard = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [success, setSuccess] = useState(false);
     const [existingSubmission, setExistingSubmission] = useState(null);
+    const [documents, setDocuments] = useState({ idCard: '', photo: '' });
+    const [uploading, setUploading] = useState({ idCard: false, photo: false });
     const [userSubmissions, setUserSubmissions] = useState({});
     const [allHistory, setAllHistory] = useState([]);
     const [loadingAll, setLoadingAll] = useState(true);
@@ -40,21 +42,53 @@ const FacultyDashboard = () => {
         );
     };
 
+    const fetchYears = async () => {
+        try {
+            const res = await api.get('/financialYears');
+            setYears(res.data.sort((a,b) => b.name.localeCompare(a.name)));
+        } catch (err) {
+            console.error("Error fetching financial years:", err);
+        }
+    };
+
+    const fetchSubmissions = async () => {
+        if (!user) return;
+        try {
+            const res = await api.get('/claims/my-claims');
+            const data = res.data;
+            const map = {};
+            data.filter(d => !d.archived).forEach(d => map[d.fyId] = d);
+            setUserSubmissions(map);
+            setAllHistory(data.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)));
+            setLoadingAll(false);
+        } catch (err) {
+            console.error("Error fetching submissions:", err);
+            setLoadingAll(false);
+        }
+    };
+
     useEffect(() => {
         if (isDemoMode) {
             setYears([activeFY]);
             return;
         }
-        const unsub = onSnapshot(collection(db, "financialYears"), (snap) => {
-            setYears(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.name.localeCompare(a.name)));
-        });
-        return () => unsub();
-    }, [isDemoMode, activeFY]);
+        fetchYears();
+
+        if (socket) {
+            socket.on('FY_UPDATED', fetchYears);
+            return () => socket.off('FY_UPDATED', fetchYears);
+        }
+    }, [isDemoMode, activeFY, socket]);
+
+    useEffect(() => {
+        if (activeTab === 'overview') {
+            setSelectedFY(null);
+        }
+    }, [activeTab]);
 
     useEffect(() => {
         if (user) {
             if (isDemoMode) {
-                // In Demo Mode, submissions are local to the session
                 const savedSub = localStorage.getItem(`sub_${user.email}_${activeFY.id}`);
                 const map = {};
                 if (savedSub) {
@@ -68,37 +102,29 @@ const FacultyDashboard = () => {
                 setLoadingAll(false);
                 return;
             }
-            const q = query(collection(db, "submissions"), where("userId", "==", user.uid), where("archived", "==", false));
-            const unsub = onSnapshot(q, (snap) => {
-                const map = {};
-                snap.docs.forEach(d => map[d.data().fyId] = { id: d.id, ...d.data() });
-                setUserSubmissions(map);
-            });
+            fetchSubmissions();
 
-            // Fetch all history (including archived) for the bottom section
-            const qAll = query(collection(db, "submissions"), where("userId", "==", user.uid), orderBy("timestamp", "desc"));
-            const unsubAll = onSnapshot(qAll, (snap) => {
-                setAllHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                setLoadingAll(false);
-            });
-
-            return () => { unsub(); unsubAll(); };
+            if (socket) {
+                socket.on('CLAIM_UPDATED', fetchSubmissions);
+                return () => socket.off('CLAIM_UPDATED', fetchSubmissions);
+            }
         }
-    }, [user, isDemoMode, activeFY]);
+    }, [user, isDemoMode, activeFY, socket]);
 
     useEffect(() => {
         const saved = localStorage.getItem('faculty_selected_fy');
         if (saved && years.length > 0) {
-            const fy = years.find(y => y.id === saved);
+            const fy = years.find(y => y.id === saved || y._id === saved);
             if (fy) enterYear(fy);
         }
     }, [years]);
 
     const enterYear = (fy) => {
-        localStorage.setItem('faculty_selected_fy', fy.id);
+        const fyId = fy.id || fy._id;
+        localStorage.setItem('faculty_selected_fy', fyId);
         setSelectedFY(fy);
         setSuccess(false);
-        const sub = userSubmissions[fy.id];
+        const sub = userSubmissions[fyId];
         if (sub) {
             setExistingSubmission(sub);
             setSelectedPolicy(sub.policy);
@@ -111,6 +137,7 @@ const FacultyDashboard = () => {
                 doj: sub.doj || '',
                 gender: sub.gender || 'Male'
             });
+            setDocuments({ idCard: sub.idCard || '', photo: sub.photo || '' });
         } else {
             setExistingSubmission(null);
             setSelectedPolicy(null);
@@ -123,6 +150,7 @@ const FacultyDashboard = () => {
                 doj: '',
                 gender: 'Male'
             });
+            setDocuments({ idCard: '', photo: '' });
         }
     };
 
@@ -130,11 +158,41 @@ const FacultyDashboard = () => {
     const isLocked = !selectedFY?.enabled || isAfterDeadline;
 
     const addDep = (type) => {
-        if (isLocked) return;
-        const counts = dependents.reduce((acc, d) => { acc[d.type] = (acc[d.type] || 0) + 1; return acc; }, {});
-        if (type === 'child' && (counts.child || 0) >= selectedFY.maxChildren) return setAlertConfig({ title: 'Limit Reached', text: `Only ${selectedFY.maxChildren} children allowed.` });
-        if (type === 'parent' && (counts.parent || 0) >= selectedFY.maxParents) return setAlertConfig({ title: 'Limit Reached', text: `Only ${selectedFY.maxParents} parents allowed.` });
-        setDependents([...dependents, { id: Date.now(), type, name: '', gender: 'Male', dob: '', relation: type }]);
+        if (!selectedFY) return;
+        
+        const counts = {
+            spouse: dependents.filter(d => d.type === 'spouse').length,
+            child: dependents.filter(d => d.type === 'child').length,
+            parent: dependents.filter(d => d.type === 'parent').length
+        };
+
+        if (type === 'spouse' && (counts.spouse >= 1 || !selectedFY.allowSpouse)) return;
+        if (type === 'child' && (counts.child >= (selectedFY.maxChildren || 0) || !selectedFY.allowChildren)) return;
+        if (type === 'parent' && (counts.parent >= (selectedFY.maxParents || 0) || !selectedFY.allowParents)) return;
+
+        const id = Math.random().toString(36).substr(2, 9);
+        setDependents([...dependents, { id, type, name: '', dob: '', gender: 'Male' }]);
+    };
+
+    const handleFileUpload = async (e, type) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 2 * 1024 * 1024) return setAlertConfig({ title: 'File Too Large', text: "Maximum file size is 2MB." });
+
+        setUploading({ ...uploading, [type]: true });
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await api.post('/claims/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            setDocuments(prev => ({ ...prev, [type]: res.data.url }));
+        } catch (err) {
+            console.error(err);
+            setAlertConfig({ title: 'Upload Failed', text: "Could not upload document. Check your connection." });
+        } finally {
+            setUploading({ ...uploading, [type]: false });
+        }
     };
 
     const handleSubmit = async () => {
@@ -142,43 +200,49 @@ const FacultyDashboard = () => {
         if (!selectedPolicy || !profile.empId) return setAlertConfig({ title: 'Incomplete', text: "Please complete all mandatory fields." });
         
         setIsSubmitting(true);
+        const spouseCount = dependents.filter(d => d.type === 'spouse').length;
+        const childrenCount = dependents.filter(d => d.type === 'child').length;
+        const parentCount = dependents.filter(d => d.type === 'parent').length;
         const data = {
-            userId: user.uid,
+            userId: user._id || user.uid,
             userName: user.name,
             email: user.email,
             ...profile,
             policy: selectedPolicy,
             coverageId: selectedPolicy.label,
             basePremium: selectedPolicy.premium,
-            spousePremium: (dependents.some(d => d.relation === 'Spouse') ? (selectedFY.spousePremium || 0) : 0),
-            childrenPremium: (dependents.filter(d => d.relation === 'Child').length * (selectedFY.childPremium || 0)),
-            parentsPremium: (dependents.filter(d => d.relation === 'Father' || d.relation === 'Mother').length * (selectedFY.parentPremium || 0)),
+            spousePremium: spouseCount > 0 ? (selectedFY.spousePremium || 0) : 0,
+            childrenPremium: (childrenCount * (selectedFY.childPremium || 0)),
+            parentsPremium: (parentCount * (selectedFY.parentPremium || 0)),
             premium: selectedPolicy.premium + 
-                     (dependents.some(d => d.relation === 'Spouse') ? (selectedFY.spousePremium || 0) : 0) +
-                     (dependents.filter(d => d.relation === 'Child').length * (selectedFY.childPremium || 0)) +
-                     (dependents.filter(d => d.relation === 'Father' || d.relation === 'Mother').length * (selectedFY.parentPremium || 0)),
+                     (spouseCount > 0 ? (selectedFY.spousePremium || 0) : 0) +
+                     (childrenCount * (selectedFY.childPremium || 0)) +
+                     (parentCount * (selectedFY.parentPremium || 0)),
             dependents,
-            fyId: selectedFY.id,
-            archived: false,
-            timestamp: serverTimestamp()
+            idCard: documents.idCard,
+            photo: documents.photo,
+            fyId: selectedFY.id || selectedFY._id,
+            fyName: selectedFY.name,
+            financialYear: selectedFY.name,
+            patientName: user.name,
+            relation: 'Self',
+            archived: false
         };
         if (isDemoMode) {
             localStorage.setItem(`sub_${user.email}_${selectedFY.id}`, JSON.stringify(data));
-            // Simulate profile update
             const updatedUser = { ...user, ...profile };
             localStorage.setItem('mediclaim_user', JSON.stringify(updatedUser));
             setSuccess(true);
-            setTimeout(() => window.location.reload(), 2000); // Reload to sync
+            setTimeout(() => window.location.reload(), 2000);
             return;
         }
         try {
             if (existingSubmission) {
-                await updateDoc(doc(db, "submissions", existingSubmission.id), data);
+                await api.put(`/claims/${existingSubmission._id || existingSubmission.id}`, data);
             } else {
-                await addDoc(collection(db, "submissions"), data);
+                await api.post('/claims', data);
             }
-            // Also update the core user profile for central archival
-            await updateDoc(doc(db, "users", user.uid), {
+            await api.put(`/users/${user._id || user.uid}`, {
                 phone: profile.phone,
                 doj: profile.doj,
                 gender: profile.gender,
@@ -199,9 +263,9 @@ const FacultyDashboard = () => {
 
     if (!selectedFY) return (
         <div style={{ width: '100%', margin: '0 auto' }}>
-            <header style={{ marginBottom: '3.5rem', borderLeft: '12px solid var(--primary)', paddingLeft: '2.5rem' }}>
-                <h1 style={{ fontSize: '2.5rem', fontWeight: 900, lineHeight: 1.1 }}>Enrollment Dashboard</h1>
-                <p style={{ color: 'var(--text-muted)', fontWeight: 700, marginTop: '0.5rem' }}>Active institutional enrollment sessions and cycle selection.</p>
+            <header style={{ marginBottom: '3.5rem', borderLeft: '12px solid var(--primary)', paddingLeft: 'clamp(1rem, 5vw, 2.5rem)' }}>
+                <h1 style={{ fontSize: 'clamp(1.8rem, 8vw, 2.5rem)', fontWeight: 900, lineHeight: 1.1 }}>Health Insurance Enrollment</h1>
+                <p style={{ color: 'var(--text-muted)', fontWeight: 700, marginTop: '0.5rem', fontSize: '0.9rem' }}>Select an active session to manage your medical policy details.</p>
             </header>
             
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '2rem' }}>
@@ -212,13 +276,14 @@ const FacultyDashboard = () => {
                         <p style={{ fontWeight: 800 }}>Institutional enrollment cycles are currently offline or de-authorized.</p>
                     </div>
                 ) : years.map(y => {
-                    const sub = userSubmissions[y.id];
+                    const yId = y.id || y._id;
+                    const sub = userSubmissions[yId];
                     const expired = y.deadline && new Date() > new Date(y.deadline);
                     const locked = !y.enabled || expired || y.isArchived;
                     const color = locked ? '#94a3b8' : sub ? 'var(--primary)' : '#22c55e';
                     
                     return (
-                        <div key={y.id} className="glass-panel" onClick={() => enterYear(y)} style={{ 
+                        <div key={yId} className="glass-panel" onClick={() => enterYear(y)} style={{ 
                             padding: '2.5rem', 
                             cursor: 'pointer', 
                             borderLeft: `10px solid ${color}`,
@@ -278,9 +343,9 @@ const FacultyDashboard = () => {
             </div>
 
             <div style={{ marginTop: '6rem' }}>
-                <header style={{ marginBottom: '2.5rem', borderLeft: '12px solid var(--border-glass)', paddingLeft: '2.5rem' }}>
-                    <h2 style={{ fontSize: '2rem', fontWeight: 900 }}>Submission Timeline</h2>
-                    <p style={{ color: 'var(--text-muted)', fontWeight: 700 }}>Legacy archives and historical enrollment snapshots.</p>
+                <header style={{ marginBottom: '2.5rem', borderLeft: '12px solid var(--border-glass)', paddingLeft: 'clamp(1rem, 5vw, 2.5rem)' }}>
+                    <h2 style={{ fontSize: 'clamp(1.5rem, 6vw, 2rem)', fontWeight: 900 }}>My Enrollment History</h2>
+                    <p style={{ color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem' }}>Past cycle records and historical enrollment snapshots.</p>
                 </header>
 
                 <div style={{ display: 'grid', gap: '1.5rem' }}>
@@ -289,7 +354,7 @@ const FacultyDashboard = () => {
                             <Loader2 className="animate-spin" size={30} color="var(--primary)" />
                         </div>
                     ) : allHistory.filter(item => {
-                        const fy = years.find(y => y.id === item.fyId);
+                        const fy = years.find(y => (y.id || y._id) === item.fyId);
                         const isFyLocked = fy && (!fy.enabled || fy.isArchived || (fy.deadline && new Date() > new Date(fy.deadline)));
                         return isFyLocked || item.archived;
                     }).length === 0 ? (
@@ -298,11 +363,11 @@ const FacultyDashboard = () => {
                         </div>
                     ) : (
                         allHistory.filter(item => {
-                            const fy = years.find(y => y.id === item.fyId);
+                            const fy = years.find(y => (y.id || y._id) === item.fyId);
                             const isFyLocked = fy && (!fy.enabled || fy.isArchived || (fy.deadline && new Date() > new Date(fy.deadline)));
                             return isFyLocked || item.archived;
                         }).map(item => (
-                            <div key={item.id} className="glass-panel" style={{ padding: '1.5rem 2rem', border: '2px solid var(--border-glass)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div key={item._id || item.id} className="glass-panel" style={{ padding: '1.5rem 2rem', border: '2px solid var(--border-glass)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
                                     <div>
                                         <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--primary)', letterSpacing: '1px' }}>SESSION</div>
@@ -315,9 +380,12 @@ const FacultyDashboard = () => {
                                     </div>
                                     <div>
                                         <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--text-muted)' }}>SUBMITTED</div>
-                                        <div style={{ fontWeight: 900, fontSize: '0.8rem' }}>{item.timestamp?.toDate().toLocaleDateString() || 'ARCHIVED'}</div>
+                                        <div style={{ fontWeight: 900, fontSize: '0.8rem' }}>{new Date(item.createdAt || item.timestamp).toLocaleDateString() || 'ARCHIVED'}</div>
                                     </div>
                                 </div>
+                                <button className="btn btn-ghost" style={{ padding: '0.4rem 1rem', border: '1px solid var(--primary)', color: 'var(--primary)', fontWeight: 900, fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '8px' }} onClick={() => generateEnrollmentPDF({ submission: item, activeFY: { name: item.fyName || item.fyId } })}>
+                                    <Download size={14} /> DOWNLOAD_PDF
+                                </button>
                                 <div style={{ padding: '0.4rem 1rem', background: 'var(--primary)', color: 'white', fontWeight: 900, fontSize: '0.6rem', letterSpacing: '1px' }}>
                                     VERIFIED_ARCHIVE
                                 </div>
@@ -331,11 +399,10 @@ const FacultyDashboard = () => {
 
     return (
         <div style={{ width: '100%', margin: '0 auto', paddingBottom: '5rem' }}>
-            <div className="flex-adaptive-header">
-                <button className="btn btn-ghost" onClick={exitToHome} style={{ border: '2px solid var(--border-glass)', padding: '0.8rem 2rem' }}><ArrowLeft /> EXIT_TO_HOME</button>
+            <div className="flex-adaptive-header" style={{ marginBottom: '3rem', borderLeft: '12px solid var(--primary)', paddingLeft: '2rem' }}>
                 <div className="header-info">
-                    <h1 style={{ fontSize: 'clamp(1.5rem, 5vw, 2rem)', fontWeight: 900 }}>FINANCIAL CYCLE {selectedFY.name}</h1>
-                    <p style={{ color: isLocked ? '#ef4444' : '#22c55e', fontWeight: 900, fontSize: '0.75rem', letterSpacing: '1px' }}>{isLocked ? 'VIEW_ONLY' : 'ENROLLMENT_OPEN'}</p>
+                    <h1 style={{ fontSize: 'clamp(2rem, 5vw, 3rem)', fontWeight: 900 }}>SESSION {selectedFY.name}</h1>
+                    <p style={{ color: isLocked ? '#ef4444' : '#22c55e', fontWeight: 900, fontSize: '0.8rem', letterSpacing: '1px' }}>{isLocked ? 'VIEW_ONLY_ACCESS' : 'ENROLLMENT_SYNCHRONIZED'}</p>
                 </div>
             </div>
 
@@ -343,14 +410,19 @@ const FacultyDashboard = () => {
                 <div className="glass-panel" style={{ padding: '8rem', textAlign: 'center', borderTop: '12px solid #22c55e' }}>
                     <CheckCircle size={100} color="#22c55e" style={{ marginBottom: '2rem' }} className="animate-pulse" />
                     <h2 style={{ fontSize: '3rem', fontWeight: 900 }}>Update Finalized!</h2>
-                    <p style={{ opacity: 0.7, fontWeight: 700, fontSize: '1.2rem' }}>Your records for FY {selectedFY.name} have been synchronized. Redirecting...</p>
+                    <p style={{ opacity: 0.7, fontWeight: 700, fontSize: '1.2rem', marginBottom: '3rem' }}>Your records for FY {selectedFY.name} have been synchronized. Redirecting...</p>
+                    <div style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center' }}>
+                        <button className="btn btn-primary" onClick={() => generateEnrollmentPDF({ submission: existingSubmission || userSubmissions[selectedFY.id || selectedFY._id], activeFY: selectedFY })} style={{ padding: '1.2rem 3rem', fontSize: '1rem', fontWeight: 900 }}>
+                            <Download size={20} /> DOWNLOAD RECEIPT
+                        </button>
+                    </div>
                 </div>
             ) : (
                 <div style={{ display: 'grid', gap: '3rem' }}>
                     {/* 1. Profile Section */}
-                    <section className="glass-panel" style={{ padding: '3rem' }}>
-                        <h2 style={{ marginBottom: '2rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-main)' }}>
-                            <User size={24} color="var(--primary)" /> Personal & Professional Details
+                    <section className="glass-panel" style={{ padding: 'clamp(1.5rem, 5vw, 3rem)' }}>
+                        <h2 style={{ marginBottom: '2rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-main)', fontSize: 'clamp(1.1rem, 4vw, 1.5rem)' }}>
+                            <User size={24} color="var(--primary)" /> Member Profile
                         </h2>
                         <div className="responsive-auto-grid" style={{ gap: '1.2rem' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -385,8 +457,8 @@ const FacultyDashboard = () => {
                     </section>
 
                     {/* 2. Policy Section */}
-                    <section className="glass-panel" style={{ padding: '3rem' }}>
-                        <h2 style={{ marginBottom: '2.5rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px' }}><Heart size={26} color="var(--primary)" /> Policy Selection Tiers</h2>
+                    <section className="glass-panel" style={{ padding: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
+                        <h2 style={{ marginBottom: '2.5rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px', fontSize: 'clamp(1.1rem, 4vw, 1.5rem)' }}><Heart size={26} color="var(--primary)" /> Choose Your Plan</h2>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
                             {selectedFY.policies?.map(p => (
                                 <div key={p.id} className="glass-panel" onClick={() => !isLocked && setSelectedPolicy(p)}
@@ -403,61 +475,165 @@ const FacultyDashboard = () => {
                     </section>
 
                     {/* 3. Dependents Section */}
-                    <section className="glass-panel" style={{ padding: '3rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem', flexWrap: 'wrap', gap: '1rem' }}>
-                            <h2 style={{ fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px' }}><UserPlus size={26} color="var(--primary)" /> Insured Beneficiaries</h2>
-                            {!isLocked && (
-                                <div style={{ display: 'flex', gap: '1rem' }}>
-                                    {selectedFY.allowSpouse && <button className="btn btn-ghost" style={{ fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} onClick={() => addDep('spouse')}>+ SPOUSE</button>}
-                                    {selectedFY.allowChildren && <button className="btn btn-ghost" style={{ fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} onClick={() => addDep('child')}>+ CHILD</button>}
-                                    {selectedFY.allowParents && <button className="btn btn-ghost" style={{ fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} onClick={() => addDep('parent')}>+ PARENT</button>}
-                                </div>
-                            )}
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                            {dependents.map(d => (
-                                <div key={d.id} className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ fontWeight: 900, color: 'var(--primary)', fontSize: '0.7rem', letterSpacing: '1.5px' }}>{d.type.toUpperCase()} INFORMATION</span>
-                                        {!isLocked && (
-                                            <button className="btn btn-ghost" style={{ width: '45px', height: '45px', background: 'rgba(239, 68, 68, 0.1)', border: '2px solid #ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }} onClick={() => setDependents(dependents.filter(x=>x.id!==d.id))}>
-                                                <Trash2 size={24} color="#ef4444" strokeWidth={3} />
+                    {(selectedFY.allowSpouse || selectedFY.allowChildren || selectedFY.allowParents) && (
+                        <section className="glass-panel" style={{ padding: 'clamp(1.5rem, 5vw, 3rem)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem', flexWrap: 'wrap', gap: '1rem' }}>
+                                <h2 style={{ fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px', fontSize: 'clamp(1.1rem, 4vw, 1.5rem)' }}><UserPlus size={26} color="var(--primary)" /> Family Members (Dependents)</h2>
+                                {!isLocked && (
+                                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                                        {selectedFY.allowSpouse && (
+                                            <button 
+                                                className="btn btn-ghost" 
+                                                style={{ fontSize: '0.65rem', border: '1px solid var(--border-glass)', padding: '0.8rem 1.2rem', fontWeight: 900 }} 
+                                                onClick={() => addDep('spouse')}
+                                                disabled={dependents.filter(d => d.type === 'spouse').length >= 1}
+                                            >
+                                                <div style={{ opacity: 0.6 }}>SPOUSE SLOTS:</div>
+                                                <div style={{ color: dependents.filter(d => d.type === 'spouse').length >= 1 ? '#ef4444' : 'var(--primary)' }}>
+                                                    {dependents.filter(d => d.type === 'spouse').length}/1
+                                                </div>
+                                            </button>
+                                        )}
+                                        {selectedFY.allowChildren && (
+                                            <button 
+                                                className="btn btn-ghost" 
+                                                style={{ fontSize: '0.65rem', border: '1px solid var(--border-glass)', padding: '0.8rem 1.2rem', fontWeight: 900 }} 
+                                                onClick={() => addDep('child')}
+                                                disabled={dependents.filter(d => d.type === 'child').length >= (selectedFY.maxChildren || 0)}
+                                            >
+                                                <div style={{ opacity: 0.6 }}>CHILD SLOTS:</div>
+                                                <div style={{ color: dependents.filter(d => d.type === 'child').length >= (selectedFY.maxChildren || 0) ? '#ef4444' : 'var(--primary)' }}>
+                                                    {dependents.filter(d => d.type === 'child').length}/{selectedFY.maxChildren}
+                                                </div>
+                                            </button>
+                                        )}
+                                        {selectedFY.allowParents && (
+                                            <button 
+                                                className="btn btn-ghost" 
+                                                style={{ fontSize: '0.65rem', border: '1px solid var(--border-glass)', padding: '0.8rem 1.2rem', fontWeight: 900 }} 
+                                                onClick={() => addDep('parent')}
+                                                disabled={dependents.filter(d => d.type === 'parent').length >= (selectedFY.maxParents || 0)}
+                                            >
+                                                <div style={{ opacity: 0.6 }}>PARENT SLOTS:</div>
+                                                <div style={{ color: dependents.filter(d => d.type === 'parent').length >= (selectedFY.maxParents || 0) ? '#ef4444' : 'var(--primary)' }}>
+                                                    {dependents.filter(d => d.type === 'parent').length}/{selectedFY.maxParents}
+                                                </div>
                                             </button>
                                         )}
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                        <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>FULL NAME</label>
-                                        <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '1rem' }} placeholder="Ex: John Doe" value={d.name} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, name: e.target.value} : x))} />
-                                    </div>
-                                    <div className="responsive-auto-grid" style={{ gap: '1.5rem' }}>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                            <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>GENDER</label>
-                                            <select disabled={isLocked} className="glass-panel" style={{ width: '100%', padding: '1rem', background: 'var(--bg-glass)', color: 'var(--text-main)', border: '1px solid var(--border-glass)' }} value={d.gender} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, gender: e.target.value} : x))}>
-                                                <option style={{ background: 'var(--bg-main)' }}>Male</option><option style={{ background: 'var(--bg-main)' }}>Female</option><option style={{ background: 'var(--bg-main)' }}>Other</option>
-                                            </select>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                                {dependents.map(d => (
+                                    <div key={d.id} className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontWeight: 900, color: 'var(--primary)', fontSize: '0.7rem', letterSpacing: '1.5px' }}>{d.type.toUpperCase()} INFORMATION</span>
+                                            {!isLocked && (
+                                                <button className="btn btn-ghost" style={{ width: '45px', height: '45px', background: 'rgba(239, 68, 68, 0.1)', border: '2px solid #ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }} onClick={() => setDependents(dependents.filter(x=>x.id!==d.id))}>
+                                                    <Trash2 size={24} color="#ef4444" strokeWidth={3} />
+                                                </button>
+                                            )}
                                         </div>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DATE OF BIRTH</label>
-                                                {d.dob && (
-                                                    <span style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--primary)', background: 'rgba(99, 102, 241, 0.1)', padding: '0.2rem 0.6rem', border: '1px solid var(--primary-glow)' }}>
-                                                        (Age: {Math.floor((new Date() - new Date(d.dob)) / (365.25 * 24 * 60 * 60 * 1000))})
-                                                    </span>
-                                                )}
+                                            <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>FULL NAME</label>
+                                            <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '1rem' }} placeholder="Ex: John Doe" value={d.name} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, name: e.target.value} : x))} />
+                                        </div>
+                                        <div className="responsive-auto-grid" style={{ gap: '1.5rem' }}>
+                                            {d.type === 'parent' && (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                                    <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>RELATION</label>
+                                                    <select disabled={isLocked} className="glass-panel" style={{ width: '100%', padding: '1rem', background: 'var(--bg-glass)', color: 'var(--text-main)', border: '1px solid var(--border-glass)' }} value={d.relation} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, relation: e.target.value} : x))}>
+                                                        <option value="">Select Relation</option>
+                                                        <option style={{ background: 'var(--bg-main)' }}>Father</option>
+                                                        <option style={{ background: 'var(--bg-main)' }}>Mother</option>
+                                                        <option style={{ background: 'var(--bg-main)' }}>Father-in-law</option>
+                                                        <option style={{ background: 'var(--bg-main)' }}>Mother-in-law</option>
+                                                    </select>
+                                                </div>
+                                            )}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>GENDER</label>
+                                                <select disabled={isLocked} className="glass-panel" style={{ width: '100%', padding: '1rem', background: 'var(--bg-glass)', color: 'var(--text-main)', border: '1px solid var(--border-glass)' }} value={d.gender} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, gender: e.target.value} : x))}>
+                                                    <option style={{ background: 'var(--bg-main)' }}>Male</option><option style={{ background: 'var(--bg-main)' }}>Female</option><option style={{ background: 'var(--bg-main)' }}>Other</option>
+                                                </select>
                                             </div>
-                                            <input disabled={isLocked} type="date" className="glass-panel" style={{ width: '100%', padding: '1rem', color: 'var(--text-main)', border: '1px solid var(--border-glass)' }} value={d.dob} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, dob: e.target.value} : x))} />
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DATE OF BIRTH</label>
+                                                    {d.dob && (
+                                                        <span style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--primary)', background: 'rgba(99, 102, 241, 0.1)', padding: '0.2rem 0.8rem', border: '1px solid var(--primary-glow)', borderRadius: '4px' }}>
+                                                            {Math.floor((new Date() - new Date(d.dob)) / (365.25 * 24 * 60 * 60 * 1000))} YEARS OLD
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <input disabled={isLocked} type="date" className="glass-panel" style={{ width: '100%', padding: '1rem', color: 'var(--text-main)', border: '1px solid var(--border-glass)' }} value={d.dob} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, dob: e.target.value} : x))} />
+                                            </div>
                                         </div>
                                     </div>
+                                ))}
+                                {dependents.length === 0 && <div style={{ textAlign: 'center', padding: '5rem', border: '3px dashed var(--border-glass)', borderRadius: '15px', opacity: 0.5, fontWeight: 900 }}>No dependents added yet.</div>}
+                            </div>
+                        </section>
+                    )}
+
+                    {/* 4. Document Verification */}
+                    {selectedFY.requireDocuments && (
+                        <section className="glass-panel" style={{ padding: 'clamp(1.5rem, 5vw, 3rem)' }}>
+                            <h2 style={{ marginBottom: '2.5rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px', fontSize: 'clamp(1.1rem, 4vw, 1.5rem)' }}>
+                                <ShieldCheck size={26} color="var(--primary)" /> Required Documents
+                            </h2>
+                            <div className="responsive-auto-grid" style={{ gap: '2rem' }}>
+                                <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center', border: '2px dashed var(--border-glass)' }}>
+                                    <div style={{ marginBottom: '1.5rem', opacity: documents.idCard ? 1 : 0.4 }}>
+                                        <Shield size={40} color={documents.idCard ? 'var(--primary)' : 'white'} style={{ margin: '0 auto' }} />
+                                    </div>
+                                    <h3 style={{ fontSize: '1rem', fontWeight: 900, marginBottom: '0.5rem' }}>Government ID</h3>
+                                    <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>Upload Aadhar or Institutional ID.</p>
+                                    
+                                    {documents.idCard ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                            <div style={{ padding: '0.5rem', background: 'rgba(34,197,94,0.1)', color: '#22c55e', fontSize: '0.7rem', fontWeight: 900 }}>VERIFIED</div>
+                                            <button className="btn btn-ghost" style={{ fontSize: '0.7rem' }} onClick={() => setDocuments({ ...documents, idCard: '' })}>REPLACE</button>
+                                        </div>
+                                    ) : (
+                                        <div style={{ position: 'relative' }}>
+                                            <input disabled={isLocked || uploading.idCard} type="file" accept="image/*,.pdf" style={{ opacity: 0, position: 'absolute', inset: 0, cursor: 'pointer' }} onChange={e => handleFileUpload(e, 'idCard')} />
+                                            <button className="btn btn-primary" style={{ width: '100%', pointerEvents: 'none' }} disabled={uploading.idCard}>
+                                                {uploading.idCard ? <Loader2 className="animate-spin" /> : 'UPLOAD'}
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
-                            ))}
-                            {dependents.length === 0 && <div style={{ textAlign: 'center', padding: '5rem', border: '3px dashed var(--border-glass)', borderRadius: '15px', opacity: 0.5, fontWeight: 900 }}>No dependents added yet.</div>}
-                        </div>
-                    </section>
+
+                                <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center', border: '2px dashed var(--border-glass)' }}>
+                                    <div style={{ marginBottom: '1.5rem', opacity: documents.photo ? 1 : 0.4 }}>
+                                        <User size={40} color={documents.photo ? 'var(--primary)' : 'white'} style={{ margin: '0 auto' }} />
+                                    </div>
+                                    <h3 style={{ fontSize: '1rem', fontWeight: 900, marginBottom: '0.5rem' }}>Passport Photo</h3>
+                                    <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>Recent professional photograph (JPG/PNG).</p>
+                                    
+                                    {documents.photo ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                            <div style={{ padding: '0.5rem', background: 'rgba(34,197,94,0.1)', color: '#22c55e', fontSize: '0.7rem', fontWeight: 900 }}>UPLOADED</div>
+                                            <button className="btn btn-ghost" style={{ fontSize: '0.7rem' }} onClick={() => setDocuments({ ...documents, photo: '' })}>REPLACE</button>
+                                        </div>
+                                    ) : (
+                                        <div style={{ position: 'relative' }}>
+                                            <input disabled={isLocked || uploading.photo} type="file" accept="image/*" style={{ opacity: 0, position: 'absolute', inset: 0, cursor: 'pointer' }} onChange={e => handleFileUpload(e, 'photo')} />
+                                            <button className="btn btn-primary" style={{ width: '100%', pointerEvents: 'none' }} disabled={uploading.photo}>
+                                                {uploading.photo ? <Loader2 className="animate-spin" /> : 'UPLOAD'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </section>
+                    )}
 
                     <div style={{ marginTop: '3rem', display: 'flex', justifyContent: 'center' }}>
                         {!isLocked ? (
                             <button className="btn btn-primary" style={{ padding: '1.5rem 6rem', width: '100%', maxWidth: '600px', fontSize: '1.1rem', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px' }} onClick={handleSubmit} disabled={isSubmitting}>
-                                {isSubmitting ? <Loader2 className="animate-spin" /> : <><Save size={24} /> {existingSubmission ? 'UPDATE ENROLLMENT DATA' : 'FINALIZE SUBMISSION'}</>}
+                                {isSubmitting ? <Loader2 className="animate-spin" /> : <><Save size={24} /> {existingSubmission ? 'Update My Enrollment' : 'Submit Enrollment'}</>}
                             </button>
                         ) : (
                             <div className="glass-panel" style={{ padding: '3rem', background: 'rgba(239, 68, 68, 0.05)', border: '2px solid rgba(239, 68, 68, 0.2)' }}>

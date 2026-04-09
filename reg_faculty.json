@@ -1,0 +1,8 @@
+{
+  "name": "John Doe",
+  "email": "faculty@test.com",
+  "password": "facultypassword",
+  "department": "Computer Science",
+  "empId": "FAC001",
+  "role": "faculty"
+}

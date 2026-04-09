@@ -1,10 +1,22 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>
+      window.onerror = function(msg, url, lineNo, columnNo, error) {
+        const errorDiv = document.createElement('div');
+        errorDiv.style.cssText = 'color:white; background:#ef4444; padding:2rem; position:fixed; z-index:999999; top:0; left:0; width:100%; font-family:monospace; border-bottom:4px solid black; box-shadow: 0 10px 30px rgba(0,0,0,0.5)';
+        errorDiv.innerHTML = '<strong>CRITICAL LOAD ERROR</strong><br><br>' + msg + '<br><br>Stack trace:<pre style="margin-top:1rem; opacity:0.8; font-size:0.8rem">' + (error && error.stack || 'No stack trace available') + '</pre>';
+        document.body.prepend(errorDiv);
+        return false;
+      };
+      console.log("Diagnostic Logger Initialized");
+    </script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mediclaim Portal</title>
+    <meta name="description" content="Official Institutional Mediclaim Management Portal. Real-time enrollment and policy management for educational institutions." />
+    <meta name="keywords" content="Mediclaim, Insurance, Institutional Portal, Health Insurance Registration, Policy Management" />
+    <title>Mediclaim Portal | Institutional Management System</title>
   </head>
   <body>
     <div id="root"></div>

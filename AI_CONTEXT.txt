@@ -1,0 +1,90 @@
+MediclaimSystem AI Context Pad
+Last updated: 2026-04-08
+
+Purpose
+- This file is the shared handover log for any AI working on this repository.
+- Every AI that changes code must update this file in the same session before stopping.
+- If multiple AIs work on the repo, each AI should append a new dated entry instead of overwriting prior history.
+
+Rules For Any AI Editing This Repo
+- Read this file before making changes.
+- After making changes, update:
+  1. "Current Architecture"
+  2. "Recent AI Changes"
+  3. "Open Issues / Next Work"
+  4. "Run / Verification Notes" if startup or test commands changed
+- Do not remove prior entries unless they are plainly wrong and you replace them with corrected facts.
+- Keep entries factual. Record what changed, why, and what still is not verified.
+- If you see edits from another AI, preserve them and append your own section with the date.
+- Never reintroduce Firebase logic. MongoDB + Express + JWT + Socket.io is the active stack.
+
+Current Architecture
+- Frontend: React + Vite in `/src`
+- API client: Axios in `/src/api.js`
+- App state: `/src/context/AppContext.jsx`
+- Backend: Express + Mongoose in `/server`
+- Auth: JWT via `x-auth-token`
+- Realtime: Socket.io events `CLAIM_UPDATED`, `USER_UPDATED`, `FY_UPDATED`
+- Storage: Multer uploads via `/uploads`
+- Database: MongoDB
+
+Recent AI Changes
+[2026-04-08]
+- Added backend routes for:
+  - `/api/financialYears`
+  - `/api/logs`
+  - `/api/mail`
+  - richer `/api/claims`
+  - richer `/api/users`
+  - `/api/auth/update-password`
+- Expanded Mongo models:
+  - `User` now includes `phone`, `designation`, `doj`, `gender`
+  - `Claim` now supports enrollment-style fields used by `FacultyDashboard`
+  - added `AuditLog` model
+- Updated backend bootstrapping:
+  - server now mounts `financialYears`, `logs`, and `mail` routes
+  - upload directory respects `UPLOADS_DIR`
+- Updated frontend integration:
+  - `AppContext` now exposes `isDemoMode` and `DEMO_FACULTY`
+  - `AppContext` fetches financial years after auth and sets `activeFY`
+  - Socket.io client points to `http://localhost:5000` during Vite dev
+  - `FacultyDashboard` premium calculations now use dependent `type`
+  - `vite.config.js` now proxies `/api` and `/uploads` to port `5000`
+- Added `nodemailer` to `server/package.json` but dependency installation still needs to be run locally
+
+Open Issues / Next Work
+- Run `npm install` inside `/server` so `nodemailer` is actually installed.
+- Verify all admin flows against real data:
+  - bulk faculty import CSV format
+  - bulk disable/delete
+  - password reset from admin screen
+  - mail dispatch
+- Verify that `HOD` behavior matches intended approval workflow. Right now HOD uses the admin dashboard route.
+- Review old Firebase-related files left in the repo root and remove them only if still unused:
+  - `.firebaserc`
+  - `firebase.json`
+  - `firestore.rules`
+- Add automated tests. No backend test suite exists yet.
+
+Run / Verification Notes
+- Frontend dev server: `npm run dev`
+- Backend dev server: `npm run backend`
+- Backend env expected in `/server/.env`:
+  - `PORT=5000`
+  - `MONGO_URI=...`
+  - `JWT_SECRET=...`
+  - `UPLOADS_DIR=...`
+- Optional SMTP env for real email sending:
+  - `SMTP_HOST`
+  - `SMTP_PORT`
+  - `SMTP_USER`
+  - `SMTP_PASS`
+  - `SMTP_FROM`
+- Without SMTP env, `/api/mail` currently accepts requests but only simulates queueing.
+- Without installing `nodemailer`, mail routes will fail when real SMTP sending is attempted.
+
+How Future AIs Should Update This File
+- Add a new dated block under "Recent AI Changes".
+- Move completed items out of "Open Issues / Next Work".
+- Add exact verification commands and outcomes.
+- If startup instructions change, update "Run / Verification Notes" immediately.
