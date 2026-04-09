@@ -73,9 +73,9 @@ export const AppProvider = ({ children }) => {
   // Socket.io Setup
   useEffect(() => {
     if (user) {
-      const socketUrl = window.location.origin.includes(':5173')
+      const socketUrl = import.meta.env.VITE_API_BASE_URL || (window.location.origin.includes(':5173')
         ? 'http://localhost:5000'
-        : window.location.origin;
+        : window.location.origin);
       const newSocket = io(socketUrl);
       setSocket(newSocket);
 
