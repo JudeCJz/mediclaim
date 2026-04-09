@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: mediclaim-backend
+    env: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: PUBLIC_SERVER_URL
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: UPLOADS_DIR
+        sync: false

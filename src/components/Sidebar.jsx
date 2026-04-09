@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { LayoutDashboard, History, LogOut, Sun, Moon, Compass, ShieldAlert, Menu, X, Settings as SettingsIcon, FileText, Users, Lock, User } from 'lucide-react';
+import { LayoutDashboard, History, LogOut, Sun, Moon, Menu, X, Settings as SettingsIcon, FileText, Users } from 'lucide-react';
 
 import logo from '../assets/logo.png';
 
@@ -25,8 +25,6 @@ const Sidebar = () => {
     justifyContent: 'flex-start',
     transition: 'all 0.2s ease'
   };
-
-  const isHistoryActive = location.pathname === '/history';
 
   const createRipple = (e) => {
     const btn = e.currentTarget;
@@ -106,20 +104,6 @@ const Sidebar = () => {
                 style={navItemStyle}
               >
                 <Users size={20} /> <span>Faculty Records</span>
-              </button>
-              <button 
-                onClick={(e) => handleTabClick('audit_logs', e)} 
-                className={`btn ${(isDashboardBase && activeTab === 'audit_logs') ? 'btn-primary' : 'btn-ghost'}`} 
-                style={navItemStyle}
-              >
-                <ShieldAlert size={20} /> <span>System Logs</span>
-              </button>
-              <button 
-                onClick={(e) => handleTabClick('archives', e)} 
-                className={`btn ${(isDashboardBase && activeTab === 'archives') ? 'btn-primary' : 'btn-ghost'}`} 
-                style={navItemStyle}
-              >
-                <History size={20} /> <span>Historical Records</span>
               </button>
             </>
           )}

@@ -9,7 +9,8 @@ const { auth } = require('../middleware/auth');
 // @desc    Register user
 // @access  Public (for now)
 router.post('/register', async (req, res) => {
-  const { name, email, password, department, empId, role, phone, designation, doj, gender } = req.body;
+  const { name, email: rawEmail, password, department, empId, role, phone, designation, doj, gender } = req.body;
+  const email = rawEmail?.trim().toLowerCase();
 
   try {
     let user = await User.findOne({ email });
@@ -37,7 +38,8 @@ router.post('/register', async (req, res) => {
 // @desc    Authenticate user & get token
 // @access  Public
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { email: rawEmail, password } = req.body;
+  const email = rawEmail?.trim().toLowerCase();
 
   try {
     let user = await User.findOne({ email });

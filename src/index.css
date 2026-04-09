@@ -167,12 +167,12 @@ input, textarea, [contenteditable="true"] {
     
     /* MOBILE-SPECIFIC ADJUSTMENTS */
     .glass-panel {
-        padding: 1.5rem;
+        padding: 1rem;
         box-shadow: 4px 4px 0px rgba(0,0,0,0.4);
     }
-    h1 { font-size: 1.8rem !important; }
-    h2 { font-size: 1.3rem !important; }
-    h3 { font-size: 1.1rem !important; }
+    h1 { font-size: 1.6rem !important; }
+    h2 { font-size: 1.2rem !important; }
+    h3 { font-size: 1rem !important; }
     .btn { padding: 0.6rem 1rem !important; font-size: 0.75rem !important; }
     
     .mobile-scroll-tabs {

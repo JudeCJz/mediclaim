@@ -21,11 +21,24 @@ router.get('/', auth, async (req, res) => {
 
 router.post('/', adminAuth, async (req, res) => {
   try {
-    const created = await FinancialYear.create(req.body);
+    // Only block if there's already an ENABLED (active) cycle
+    const activeCycle = await FinancialYear.findOne({ enabled: true });
+    if (activeCycle) {
+      return res.status(400).json({ msg: `An active enrollment cycle (FY ${activeCycle.name}) already exists. Disable it before creating a new one.` });
+    }
+
+    const data = { ...req.body };
+    // Strip empty date strings — Mongoose can't cast "" to Date
+    if (!data.lastSubmissionDate) delete data.lastSubmissionDate;
+
+    const created = await FinancialYear.create(data);
     req.app.get('io').emit('FY_UPDATED', { id: created._id.toString() });
     res.status(201).json(serializeFY(created));
   } catch (err) {
     console.error(err.message);
+    if (err.code === 11000) {
+      return res.status(400).json({ msg: `A cycle named "${req.body.name}" already exists. Choose a different name.` });
+    }
     res.status(500).json({ msg: 'Failed to create financial year' });
   }
 });
@@ -47,9 +60,19 @@ router.put('/:id', adminAuth, async (req, res) => {
 
 router.patch('/:id/toggle', adminAuth, async (req, res) => {
   try {
+    const enabling = Boolean(req.body.enabled);
+
+    // If enabling this cycle, disable all other cycles first (only 1 active at a time)
+    if (enabling) {
+      await FinancialYear.updateMany(
+        { _id: { $ne: req.params.id } },
+        { enabled: false }
+      );
+    }
+
     const updated = await FinancialYear.findByIdAndUpdate(
       req.params.id,
-      { enabled: Boolean(req.body.enabled) },
+      { enabled: enabling },
       { new: true, runValidators: true }
     );
     if (!updated) return res.status(404).json({ msg: 'Financial year not found' });

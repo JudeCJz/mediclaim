@@ -45,57 +45,86 @@ router.post('/bulk-register', adminAuth, async (req, res) => {
   let updated = 0;
   let skipped = 0;
 
-  try {
-    for (const row of rows) {
-      const parts = row.split(',').map((item) => item.trim());
-      if (parts.length < 5) {
-        skipped += 1;
-        continue;
-      }
+  for (const row of rows) {
+    // Skip empty lines
+    if (!row.trim()) {
+      skipped += 1;
+      continue;
+    }
 
-      const [name, department, email, empId, designation = '', phone = ''] = parts;
-      if (!name || !department || !email || !empId) {
-        skipped += 1;
-        continue;
-      }
+    const parts = row.split(',').map((item) => item.trim());
+    if (parts.length < 3) {
+      skipped += 1;
+      continue;
+    }
 
+    const [name, department, emailPart, empIdInput, designation = '', phone = ''] = parts;
+    const email = emailPart?.trim().toLowerCase();
+    const empId = empIdInput ? empIdInput.trim() : email;
+
+    // Skip the CSV header row (case-insensitive check)
+    if (
+      name.toLowerCase() === 'name' &&
+      department.toLowerCase() === 'department' &&
+      email.toLowerCase() === 'email'
+    ) {
+      continue;
+    }
+
+    if (!name || !department || !email) {
+      skipped += 1;
+      continue;
+    }
+
+    // Basic email format check
+    if (!email.includes('@')) {
+      skipped += 1;
+      continue;
+    }
+
+    try {
+      // Check for existing user by email OR empId
       const existing = await User.findOne({ $or: [{ email }, { empId }] });
       if (existing) {
         existing.name = name;
         existing.department = department;
-        existing.designation = designation || existing.designation;
-        existing.phone = phone || existing.phone;
         existing.email = email;
         existing.empId = empId;
+        if (designation) existing.designation = designation;
+        if (phone) existing.phone = phone;
+        const salt = await bcrypt.genSalt(10);
+        existing.password = await bcrypt.hash(email, salt);
         if (existing.role !== 'admin' && existing.role !== 'hod') {
           existing.role = 'faculty';
         }
         await existing.save();
         updated += 1;
-        continue;
+      } else {
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(email, salt);
+        await User.create({
+          name,
+          department,
+          email,
+          empId,
+          designation: designation || '',
+          phone: phone || '',
+          role: 'faculty',
+          password: hashedPassword
+        });
+        created += 1;
       }
-
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(`${empId}@123`, salt);
-      await User.create({
-        name,
-        department,
-        email,
-        empId,
-        designation,
-        phone,
-        role: 'faculty',
-        password: hashedPassword
-      });
-      created += 1;
+    } catch (rowErr) {
+      console.error(`Skipping row [${row}] due to error:`, rowErr.message);
+      skipped += 1;
     }
-
-    req.app.get('io').emit('USER_UPDATED', { type: 'bulk-register' });
-    res.json({ message: `Created ${created}, updated ${updated}, skipped ${skipped}. Default password for new users: EMPID@123` });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ msg: 'Bulk registration failed' });
   }
+
+  try {
+    req.app.get('io').emit('USER_UPDATED', { type: 'bulk-register' });
+  } catch (_) {}
+
+  res.json({ message: `Created ${created}, updated ${updated}, skipped ${skipped}. Default password for new users: their email address.` });
 });
 
 router.post('/bulk-delete', adminAuth, async (req, res) => {
@@ -200,3 +229,4 @@ router.delete('/:id', adminAuth, async (req, res) => {
 });
 
 module.exports = router;
+

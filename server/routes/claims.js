@@ -49,6 +49,16 @@ const normalizeDependents = (dependents = []) => dependents.map((dependent) => {
   };
 });
 
+const getPublicServerUrl = (req) => {
+  if (process.env.PUBLIC_SERVER_URL) {
+    return process.env.PUBLIC_SERVER_URL.replace(/\/$/, '');
+  }
+
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+  return `${protocol}://${host}`;
+};
+
 const mapClaimPayload = async (body, userId) => {
   const financialYear = body.financialYear || body.fyName;
   let fyId = body.fyId;
@@ -103,7 +113,7 @@ router.post('/upload', auth, upload.single('file'), async (req, res) => {
 
   res.status(201).json({
     filename: req.file.filename,
-    url: `/uploads/${req.file.filename}`,
+    url: `${getPublicServerUrl(req)}/uploads/${req.file.filename}`,
     type: req.file.mimetype
   });
 });
@@ -163,6 +173,14 @@ router.put('/:id', auth, async (req, res) => {
       return res.status(403).json({ msg: 'Access denied' });
     }
 
+    // Faculty cannot edit once the financial year is disabled
+    if (isOwner && !isApprover) {
+      const fy = await FinancialYear.findById(claim.fyId).lean();
+      if (fy && !fy.enabled) {
+        return res.status(403).json({ msg: 'This financial year is closed. Editing is no longer allowed.' });
+      }
+    }
+
     if (isOwner) {
       const updatedPayload = await mapClaimPayload(req.body, claim.userId.toString());
       Object.assign(claim, updatedPayload);
@@ -187,5 +205,6 @@ router.put('/:id', auth, async (req, res) => {
     res.status(500).json({ msg: 'Failed to update claim' });
   }
 });
+
 
 module.exports = router;

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
-import api from '../api';
+import api, { toApiAssetUrl } from '../api';
 import { Heart, UserPlus, Trash2, CheckCircle, ShieldCheck, Loader2, Save, Printer, User, Briefcase, X, AlertTriangle, ArrowLeft, Download } from 'lucide-react';
 import { generateEnrollmentPDF } from '../utils/pdfGenerator';
 
@@ -8,7 +8,7 @@ const FacultyDashboard = () => {
     const { user, isDemoMode, activeFY, socket, activeTab } = useApp();
     const [years, setYears] = useState([]);
     const [selectedFY, setSelectedFY] = useState(null);
-    const [profile, setProfile] = useState({ empId: '', phone: '', department: '', designation: '', doj: '', gender: 'Male' });
+    const [profile, setProfile] = useState({ name: '', empId: '', phone: '', department: '', designation: '', doj: '', gender: 'Male' });
     const [selectedPolicy, setSelectedPolicy] = useState(null);
     const [dependents, setDependents] = useState([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -51,7 +51,7 @@ const FacultyDashboard = () => {
         }
     };
 
-    const fetchSubmissions = async () => {
+    const fetchSubmissions = useCallback(async () => {
         if (!user) return;
         try {
             const res = await api.get('/claims/my-claims');
@@ -65,7 +65,7 @@ const FacultyDashboard = () => {
             console.error("Error fetching submissions:", err);
             setLoadingAll(false);
         }
-    };
+    }, [user]);
 
     useEffect(() => {
         if (isDemoMode) {
@@ -109,17 +109,9 @@ const FacultyDashboard = () => {
                 return () => socket.off('CLAIM_UPDATED', fetchSubmissions);
             }
         }
-    }, [user, isDemoMode, activeFY, socket]);
+    }, [user, isDemoMode, activeFY, socket, fetchSubmissions]);
 
-    useEffect(() => {
-        const saved = localStorage.getItem('faculty_selected_fy');
-        if (saved && years.length > 0) {
-            const fy = years.find(y => y.id === saved || y._id === saved);
-            if (fy) enterYear(fy);
-        }
-    }, [years]);
-
-    const enterYear = (fy) => {
+    const enterYear = useCallback((fy) => {
         const fyId = fy.id || fy._id;
         localStorage.setItem('faculty_selected_fy', fyId);
         setSelectedFY(fy);
@@ -130,6 +122,7 @@ const FacultyDashboard = () => {
             setSelectedPolicy(sub.policy);
             setDependents(sub.dependents || []);
             setProfile({ 
+                name: sub.userName || user.name || '',
                 empId: sub.empId || '', 
                 phone: sub.phone || user.phone || '', 
                 department: sub.department || user.department || '', 
@@ -137,22 +130,32 @@ const FacultyDashboard = () => {
                 doj: sub.doj || '',
                 gender: sub.gender || 'Male'
             });
-            setDocuments({ idCard: sub.idCard || '', photo: sub.photo || '' });
+            setDocuments({
+                idCard: toApiAssetUrl(sub.idCard || ''),
+                photo: toApiAssetUrl(sub.photo || '')
+            });
         } else {
             setExistingSubmission(null);
             setSelectedPolicy(null);
             setDependents([]);
             setProfile({ 
-                empId: '', 
-                phone: user.phone || '', 
-                department: (user.department || '').toUpperCase(), 
-                designation: '',
-                doj: '',
-                gender: 'Male'
+                name: user?.name || '',
+                empId: user?.empId || '', 
+                phone: user?.phone || '', 
+                department: (user?.department || '').toUpperCase(), 
+                designation: user?.designation || '',
+                doj: user?.doj || '',
+                gender: user?.gender || 'Male'
             });
             setDocuments({ idCard: '', photo: '' });
         }
-    };
+    }, [userSubmissions, user]);
+
+    // Disable auto-select of previous FY to respect user's overview request
+    useEffect(() => {
+        // We used to enterYear(saved) here, but now we stay in overview.
+        // localStorage.removeItem('faculty_selected_fy'); // Optional: clear it
+    }, []);
 
     const isAfterDeadline = selectedFY?.deadline && new Date() > new Date(selectedFY.deadline);
     const isLocked = !selectedFY?.enabled || isAfterDeadline;
@@ -195,29 +198,65 @@ const FacultyDashboard = () => {
         }
     };
 
+    const calculatePremium = useCallback(() => {
+        if (!selectedPolicy || !selectedFY) return 0;
+        const spouseCount = dependents.filter(d => d.type === 'spouse').length;
+        const childrenCount = dependents.filter(d => d.type === 'child').length;
+        const parentCount = dependents.filter(d => d.type === 'parent').length;
+
+        const base = Number(selectedPolicy.premium || 0);
+        const spouse = spouseCount > 0 ? Number(selectedFY.spousePremium || 0) : 0;
+        const children = childrenCount * Number(selectedFY.childPremium || 0);
+        const parents = parentCount * Number(selectedFY.parentPremium || 0);
+
+        return base + spouse + children + parents;
+    }, [selectedPolicy, selectedFY, dependents]);
+
     const handleSubmit = async () => {
         if (isLocked) return setAlertConfig({ title: 'Access Denied', text: "Enrollment window is closed." });
-        if (!selectedPolicy || !profile.empId) return setAlertConfig({ title: 'Incomplete', text: "Please complete all mandatory fields." });
+        
+        const missing = [];
+        if (!profile.name) missing.push("Full Name");
+        if (!profile.empId) missing.push("Employee ID");
+        if (!profile.phone) missing.push("Phone Number");
+        if (!profile.department) missing.push("Department");
+        if (!profile.designation) missing.push("Designation");
+        if (!profile.doj) missing.push("Date of Joining");
+        if (!selectedPolicy) missing.push("Policy selection");
+        if (selectedFY.requireDocuments) {
+            if (!documents.idCard) missing.push("Government ID Upload");
+            if (!documents.photo) missing.push("Passport Photo Upload");
+        }
+
+        if (missing.length > 0) {
+            return setAlertConfig({ 
+                title: 'Incomplete Data', 
+                text: `Please complete the following mandatory fields: ${missing.join(", ")}.` 
+            });
+        }
         
         setIsSubmitting(true);
         const spouseCount = dependents.filter(d => d.type === 'spouse').length;
         const childrenCount = dependents.filter(d => d.type === 'child').length;
         const parentCount = dependents.filter(d => d.type === 'parent').length;
+        
+        const base = Number(selectedPolicy.premium || 0);
+        const spouse = spouseCount > 0 ? Number(selectedFY.spousePremium || 0) : 0;
+        const children = childrenCount * Number(selectedFY.childPremium || 0);
+        const parents = parentCount * Number(selectedFY.parentPremium || 0);
+
         const data = {
             userId: user._id || user.uid,
-            userName: user.name,
+            userName: profile.name,
             email: user.email,
             ...profile,
             policy: selectedPolicy,
             coverageId: selectedPolicy.label,
-            basePremium: selectedPolicy.premium,
-            spousePremium: spouseCount > 0 ? (selectedFY.spousePremium || 0) : 0,
-            childrenPremium: (childrenCount * (selectedFY.childPremium || 0)),
-            parentsPremium: (parentCount * (selectedFY.parentPremium || 0)),
-            premium: selectedPolicy.premium + 
-                     (spouseCount > 0 ? (selectedFY.spousePremium || 0) : 0) +
-                     (childrenCount * (selectedFY.childPremium || 0)) +
-                     (parentCount * (selectedFY.parentPremium || 0)),
+            basePremium: base,
+            spousePremium: spouse,
+            childrenPremium: children,
+            parentsPremium: parents,
+            premium: base + spouse + children + parents,
             dependents,
             idCard: documents.idCard,
             photo: documents.photo,
@@ -242,23 +281,20 @@ const FacultyDashboard = () => {
             } else {
                 await api.post('/claims', data);
             }
-            await api.put(`/users/${user._id || user.uid}`, {
+            const userUpdate = {
+                name: profile.name,
                 phone: profile.phone,
                 doj: profile.doj,
                 gender: profile.gender,
                 empId: profile.empId,
                 department: profile.department,
                 designation: profile.designation
-            });
+            };
+            await api.put(`/users/${user._id || user.uid}`, userUpdate);
             setSuccess(true);
             setTimeout(() => setSelectedFY(null), 2500);
         } catch (err) { console.error(err); setAlertConfig({ title: 'Error', text: "Failed to save data. Please try again." }); }
         finally { setIsSubmitting(false); }
-    };
-
-    const exitToHome = () => {
-        localStorage.removeItem('faculty_selected_fy');
-        setSelectedFY(null);
     };
 
     if (!selectedFY) return (
@@ -303,14 +339,14 @@ const FacultyDashboard = () => {
                         }}>
                             
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <div style={{ width: '45px', height: '45px', background: `${color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${color}30` }}>
-                                    <Briefcase size={22} color={color} />
+                                <div style={{ width: '40px', height: '40px', background: `${color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${color}30` }}>
+                                    <Briefcase size={20} color={color} />
                                 </div>
                                 <div style={{ 
-                                    padding: '0.4rem 1rem', 
+                                    padding: '0.3rem 0.8rem', 
                                     background: `${color}10`, 
                                     border: `1px solid ${color}40`, 
-                                    fontSize: '0.65rem', 
+                                    fontSize: '0.6rem', 
                                     fontWeight: 900, 
                                     color: color,
                                     textTransform: 'uppercase',
@@ -321,20 +357,31 @@ const FacultyDashboard = () => {
                             </div>
 
                             <div>
-                                <div style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)', letterSpacing: '2px' }}>FINANCIAL CYCLE</div>
-                                <div style={{ fontSize: '1.8rem', fontWeight: 900, marginTop: '0.2rem' }}>FY {y.name}</div>
+                                <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--text-muted)', letterSpacing: '1px' }}>FINANCIAL CYCLE</div>
+                                <div style={{ fontSize: '1.4rem', fontWeight: 900, marginTop: '0.1rem' }}>FY {y.name}</div>
                             </div>
 
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', paddingTop: '1.5rem', borderTop: '1px solid var(--border-glass)' }}>
-                                <div>
-                                    <div style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DEADLINE</div>
-                                    <div style={{ fontWeight: 800, fontSize: '0.9rem', color: expired ? '#ef4444' : 'inherit' }}>{y.deadline || 'NO_LIMIT'}</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', paddingTop: '1rem', borderTop: '1px solid var(--border-glass)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--text-muted)' }}>DEADLINE: <span style={{ color: expired ? '#ef4444' : 'var(--text-main)' }}>{y.deadline || 'NO_LIMIT'}</span></div>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', color: color, fontWeight: 900, fontSize: '0.8rem' }}>
-                                    {locked ? <ShieldCheck size={18} /> : sub ? <Save size={18} /> : <UserPlus size={18} />}
-                                    <span style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                        {locked ? 'VIEW' : sub ? 'EDIT THE ENTRY' : 'ENTER ENROLLMENT'}
-                                    </span>
+                                <div style={{ display: 'grid', gridTemplateColumns: sub ? '1fr 1fr' : '1fr', gap: '0.6rem' }}>
+                                    {sub && (
+                                        <button 
+                                            className="btn btn-ghost" 
+                                            style={{ height: '38px', padding: '0 0.8rem', fontSize: '0.6rem', fontWeight: 900, color: 'var(--primary)', border: '1px solid var(--primary)30', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                                            onClick={(e) => { e.stopPropagation(); generateEnrollmentPDF({ submission: sub, activeFY: y }); }}
+                                        >
+                                            <Printer size={12} /> RECEIPT
+                                        </button>
+                                    )}
+                                    <div 
+                                        style={{ height: '38px', padding: '0 0.8rem', background: `${color}15`, border: `1px solid ${color}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: color, fontSize: '0.6rem', fontWeight: 900, cursor: 'pointer' }}
+                                        onClick={() => enterYear(y)}
+                                    >
+                                        {locked ? <ShieldCheck size={14} /> : sub ? <Save size={14} /> : <UserPlus size={14} />}
+                                        {locked ? 'VIEW' : sub ? 'EDIT' : 'ENTER'}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -353,20 +400,12 @@ const FacultyDashboard = () => {
                         <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center' }}>
                             <Loader2 className="animate-spin" size={30} color="var(--primary)" />
                         </div>
-                    ) : allHistory.filter(item => {
-                        const fy = years.find(y => (y.id || y._id) === item.fyId);
-                        const isFyLocked = fy && (!fy.enabled || fy.isArchived || (fy.deadline && new Date() > new Date(fy.deadline)));
-                        return isFyLocked || item.archived;
-                    }).length === 0 ? (
+                    ) : allHistory.length === 0 ? (
                         <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center', opacity: 0.5 }}>
-                            <p style={{ fontWeight: 900 }}>No finalized historical snapshots available yet.</p>
+                            <p style={{ fontWeight: 900 }}>No historical snapshots available yet.</p>
                         </div>
                     ) : (
-                        allHistory.filter(item => {
-                            const fy = years.find(y => (y.id || y._id) === item.fyId);
-                            const isFyLocked = fy && (!fy.enabled || fy.isArchived || (fy.deadline && new Date() > new Date(fy.deadline)));
-                            return isFyLocked || item.archived;
-                        }).map(item => (
+                        allHistory.map(item => (
                             <div key={item._id || item.id} className="glass-panel" style={{ padding: '1.5rem 2rem', border: '2px solid var(--border-glass)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
                                     <div>
@@ -418,48 +457,58 @@ const FacultyDashboard = () => {
                     </div>
                 </div>
             ) : (
-                <div style={{ display: 'grid', gap: '3rem' }}>
+                <div style={{ display: 'grid', gap: '1.5rem' }}>
                     {/* 1. Profile Section */}
-                    <section className="glass-panel" style={{ padding: 'clamp(1.5rem, 5vw, 3rem)' }}>
-                        <h2 style={{ marginBottom: '2rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-main)', fontSize: 'clamp(1.1rem, 4vw, 1.5rem)' }}>
+                    <section className="glass-panel" style={{ padding: '1.5rem' }}>
+                        <h2 style={{ marginBottom: '1.5rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-main)', fontSize: '1.2rem' }}>
                             <User size={24} color="var(--primary)" /> Member Profile
                         </h2>
-                        <div className="responsive-auto-grid" style={{ gap: '1.2rem' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>EMPLOYEE ID</label>
-                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.9rem' }} value={profile.empId} onChange={e => setProfile({...profile, empId: e.target.value})} />
+                        <div className="responsive-auto-grid" style={{ gap: '1rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>FULL NAME <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.8rem' }} value={profile.name} onChange={e => setProfile({...profile, name: e.target.value})} />
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>PHONE NUMBER</label>
-                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.9rem' }} value={profile.phone} onChange={e => setProfile({...profile, phone: e.target.value})} />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>EMPLOYEE ID <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.8rem' }} value={profile.empId} onChange={e => setProfile({...profile, empId: e.target.value})} />
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DEPARTMENT</label>
-                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.9rem', textTransform: 'uppercase', fontWeight: 900 }} value={profile.department} onChange={e => setProfile({...profile, department: e.target.value.toUpperCase()})} />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>PHONE NUMBER <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.8rem' }} value={profile.phone} onChange={e => setProfile({...profile, phone: e.target.value})} />
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DESIGNATION</label>
-                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.9rem' }} value={profile.designation} onChange={e => setProfile({...profile, designation: e.target.value})} />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DEPARTMENT <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.8rem', textTransform: 'uppercase', fontWeight: 900 }} value={profile.department} onChange={e => setProfile({...profile, department: e.target.value.toUpperCase()})} />
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>GENDER</label>
-                                <select disabled={isLocked} className="glass-panel" style={{ width: '100%', padding: '0.9rem', background: 'var(--bg-glass)', color: 'var(--text-main)', border: '1px solid var(--border-glass)' }} value={profile.gender} onChange={e => setProfile({...profile, gender: e.target.value})}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DESIGNATION <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input disabled={isLocked} autoComplete="off" className="glass-panel" style={{ width: '100%', padding: '0.8rem' }} value={profile.designation} onChange={e => setProfile({...profile, designation: e.target.value})} />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>GENDER <span style={{ color: '#ef4444' }}>*</span></label>
+                                <select disabled={isLocked} className="glass-panel" style={{ width: '100%', padding: '0.8rem', background: 'var(--bg-glass)', color: 'var(--text-main)', border: '1px solid var(--border-glass)' }} value={profile.gender} onChange={e => setProfile({...profile, gender: e.target.value})}>
                                     <option style={{ background: 'var(--bg-main)' }}>Male</option>
                                     <option style={{ background: 'var(--bg-main)' }}>Female</option>
                                     <option style={{ background: 'var(--bg-main)' }}>Other</option>
                                 </select>
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DATE OF JOINING</label>
-                                <input disabled={isLocked} type="date" className="glass-panel" style={{ width: '100%', padding: '0.9rem', color: 'var(--text-main)' }} value={profile.doj} onChange={e => setProfile({...profile, doj: e.target.value})} />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-muted)' }}>DATE OF JOINING <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input disabled={isLocked} type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem', color: 'var(--text-main)' }} value={profile.doj} onChange={e => setProfile({...profile, doj: e.target.value})} />
                             </div>
                         </div>
                     </section>
 
                     {/* 2. Policy Section */}
-                    <section className="glass-panel" style={{ padding: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
-                        <h2 style={{ marginBottom: '2.5rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px', fontSize: 'clamp(1.1rem, 4vw, 1.5rem)' }}><Heart size={26} color="var(--primary)" /> Choose Your Plan</h2>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
+                    <section className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(99, 102, 241, 0.03)', border: '2px dashed var(--primary)30' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '2.5rem' }}>
+                            <h2 style={{ fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px', fontSize: '1.2rem' }}><Heart size={26} color="var(--primary)" /> Choose Your Plan</h2>
+                            <div style={{ background: 'var(--bg-main)', padding: '0.8rem 1.5rem', border: '3px solid var(--primary)', boxShadow: '6px 6px 0px var(--primary)' }}>
+                                <div style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--primary)', letterSpacing: '1px' }}>ESTIMATED_PREMIUM</div>
+                                <div style={{ fontSize: '2rem', fontWeight: 900 }}>₹{calculatePremium().toLocaleString()}</div>
+                            </div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: '1.5rem' }}>
                             {selectedFY.policies?.map(p => (
                                 <div key={p.id} className="glass-panel" onClick={() => !isLocked && setSelectedPolicy(p)}
                                     style={{ padding: '2rem', cursor: isLocked ? 'default' : 'pointer', border: selectedPolicy?.id === p.id ? '3px solid #22c55e' : '1px solid var(--border-glass)', background: selectedPolicy?.id === p.id ? 'rgba(34,197,94,0.08)' : 'transparent' }}>

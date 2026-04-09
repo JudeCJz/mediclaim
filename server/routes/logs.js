@@ -23,4 +23,14 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
+router.delete('/purge', adminAuth, async (req, res) => {
+  try {
+    await AuditLog.deleteMany({});
+    res.json({ msg: 'All institutional audit logs have been purged.' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ msg: 'Failed to purge audit logs' });
+  }
+});
+
 module.exports = router;

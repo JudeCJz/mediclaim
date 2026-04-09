@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { auth, adminAuth } = require('../middleware/auth');
 const Claim = require('../models/Claim');
+const User = require('../models/User');
+const FinancialYear = require('../models/FinancialYear');
 
 const getTransporter = async () => {
   const {
@@ -145,6 +147,51 @@ router.post('/dispatch-confirmations', adminAuth, async (req, res) => {
     console.error(err.message);
     res.status(500).json({ msg: 'Failed to dispatch confirmation emails' });
   }
+});
+
+router.post('/announce-cycle', adminAuth, async (req, res) => {
+    const { fyId } = req.body;
+    if (!fyId) return res.status(400).json({ msg: 'fyId is required' });
+
+    try {
+        const fy = await FinancialYear.findById(fyId);
+        if (!fy) return res.status(404).json({ msg: 'Financial cycle not found' });
+
+        const users = await User.find({ role: { $in: ['faculty', 'hod'] }, status: 'active' });
+        const emails = users.map(u => u.email).filter(e => e);
+
+        if (emails.length === 0) return res.json({ message: 'No recipients found.' });
+
+        await sendMail({
+            to: emails,
+            subject: `[ACTION REQUIRED] Mediclaim Enrollment Open: FY ${fy.name}`,
+            html: `
+                <div style="font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #1a1a1a; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; padding: 40px; border-top: 8px solid #22c55e;">
+                    <h1 style="color: #22c55e; margin-bottom: 20px; font-weight: 900; text-transform: uppercase;">New Enrollment Cycle</h1>
+                    <p style="font-size: 1.1rem;">Greetings,</p>
+                    <p>The institutional administration has opened a new Mediclaim insurance enrollment cycle for <strong>Financial Year ${fy.name}</strong>.</p>
+                    
+                    <div style="background: #f0fdf4; padding: 25px; border-radius: 8px; margin: 30px 0; border: 1px solid #bbf7d0; text-align: center;">
+                        <h2 style="margin: 0; color: #166534; font-size: 1.4rem;">FY ${fy.name} Is Now Live</h2>
+                        <p style="margin: 10px 0 0; color: #15803d; font-weight: 700;">Deadline: ${fy.lastSubmissionDate ? new Date(fy.lastSubmissionDate).toLocaleDateString() : 'NO LIMIT'}</p>
+                    </div>
+
+                    <p>Please log in to the portal to manage your policy selection and add your eligible dependents. Failure to submit before the deadline may result in a disruption of coverage.</p>
+                    
+                    <div style="margin: 30px 0; text-align: center;">
+                        <a href="${process.env.CLIENT_ORIGIN || '#'}" style="background: #22c55e; color: white; padding: 15px 35px; text-decoration: none; border-radius: 5px; font-weight: 900; text-transform: uppercase; display: inline-block;">Log In To Dashboard</a>
+                    </div>
+
+                    <p style="font-size: 0.85rem; color: #64748b; margin-top: 50px; border-top: 1px solid #f1f5f9; padding-top: 20px;">This is an automated institutional notification. No reply is required.</p>
+                </div>
+            `
+        });
+
+        res.json({ message: `Announcement dispatched to ${emails.length} members.` });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ msg: 'Failed to broadcast announcement' });
+    }
 });
 
 module.exports = router;

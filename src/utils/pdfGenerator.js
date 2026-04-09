@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 
 /**
  * Generates a professional PDF receipt for a mediclaim enrollment submission.
@@ -8,6 +8,10 @@ import "jspdf-autotable";
  */
 export const generateEnrollmentPDF = (data, logoBase64 = null) => {
     const { submission, activeFY } = data;
+    if (!submission) {
+        console.error("PDF Generation failed: No submission data provided.");
+        return;
+    }
     const doc = new jsPDF();
     const primaryColor = [79, 70, 229]; // Indigo-600 (approx var(--primary))
     const textColor = [31, 41, 55]; // Gray-800
@@ -40,13 +44,13 @@ export const generateEnrollmentPDF = (data, logoBase64 = null) => {
     doc.text("Personal & Professional Profile", 15, 52);
 
     const profileData = [
-        ["Full Name", submission.userName, "Employee ID", submission.empId || 'N/A'],
+        ["Full Name", submission.userName || 'N/A', "Employee ID", submission.empId || 'N/A'],
         ["Department", submission.department || 'N/A', "Designation", submission.designation || 'N/A'],
-        ["Institutional Email", submission.email, "Phone", submission.phone || 'N/A'],
+        ["Institutional Email", submission.email || 'N/A', "Phone", submission.phone || 'N/A'],
         ["Date of Joining", submission.doj || 'N/A', "Gender", submission.gender || 'N/A'],
     ];
 
-    doc.autoTable({
+    autoTable(doc, {
         startY: 58,
         body: profileData,
         theme: 'plain',
@@ -67,12 +71,12 @@ export const generateEnrollmentPDF = (data, logoBase64 = null) => {
     doc.text("Coverage & Policy Configuration", 15, policyY);
 
     const policyData = [
-        ["Financial Cycle", `FY ${activeFY.name}`, "Base Premium", `INR ${submission.basePremium?.toLocaleString() || '0'}`],
-        ["Policy Tier", submission.coverageId || 'N/A', "Spouse Premium", `INR ${submission.spousePremium?.toLocaleString() || '0'}`],
-        ["Total Insured Lives", (submission.dependents?.length || 0) + 1, "Dependents Premium", `INR ${(submission.childrenPremium + submission.parentsPremium)?.toLocaleString() || '0'}`],
+        ["Financial Cycle", `FY ${activeFY?.name || 'Unknown'}`, "Base Premium", `INR ${(submission.basePremium || 0).toLocaleString()}`],
+        ["Policy Tier", submission.coverageId || 'N/A', "Spouse Premium", `INR ${(submission.spousePremium || 0).toLocaleString()}`],
+        ["Total Insured Lives", (submission.dependents?.length || 0) + 1, "Dependents Premium", `INR ${((submission.childrenPremium || 0) + (submission.parentsPremium || 0)).toLocaleString()}`],
     ];
 
-    doc.autoTable({
+    autoTable(doc, {
         startY: policyY + 6,
         body: policyData,
         theme: 'plain',
@@ -108,12 +112,12 @@ export const generateEnrollmentPDF = (data, logoBase64 = null) => {
         const depBody = submission.dependents.map((d, index) => [
             index + 1, 
             d.name, 
-            d.type.charAt(0).toUpperCase() + d.type.slice(1), 
-            d.gender, 
-            d.dob
+            d.type ? (d.type.charAt(0).toUpperCase() + d.type.slice(1)) : 'N/A', 
+            d.gender || 'N/A', 
+            d.dob || 'N/A'
         ]);
 
-        doc.autoTable({
+        autoTable(doc, {
             startY: depY + 6,
             head: depHeaders,
             body: depBody,
@@ -128,7 +132,7 @@ export const generateEnrollmentPDF = (data, logoBase64 = null) => {
     doc.setFontSize(8);
     doc.setTextColor(...mutedTextColor);
     doc.setFont("helvetica", "italic");
-    doc.text("Note: This is a system-generated receipt. Final premium deductions are subject to administrative review and payroll cycle synchronization.", 105, finalY, { align: "center" });
+    doc.text("Note: This is a system-generated receipt. Final premium deductions are subject to administrative review and payroll cycle synchronization.", 105, (finalY > 270 ? 270 : finalY), { align: "center" });
     
     doc.setLineWidth(0.1);
     doc.setDrawColor(209, 213, 219);
@@ -139,5 +143,5 @@ export const generateEnrollmentPDF = (data, logoBase64 = null) => {
     doc.text("Page 1 of 1", 195, 282, { align: "right" });
 
     // Save PDF
-    doc.save(`Enrollment_Receipt_${submission.userName || 'User'}_FY${activeFY.name}.pdf`);
+    doc.save(`Enrollment_Receipt_${submission.userName || 'User'}_FY${activeFY?.name || 'Unknown'}.pdf`);
 };

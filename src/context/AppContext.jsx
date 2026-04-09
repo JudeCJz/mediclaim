@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import api from '../api';
+import api, { API_BASE_URL } from '../api';
 import { io } from 'socket.io-client';
 
 const AppContext = createContext();
@@ -73,9 +73,11 @@ export const AppProvider = ({ children }) => {
   // Socket.io Setup
   useEffect(() => {
     if (user) {
-      const socketUrl = import.meta.env.VITE_API_BASE_URL || (window.location.origin.includes(':5173')
-        ? 'http://localhost:5000'
-        : window.location.origin);
+      const socketUrl = API_BASE_URL.startsWith('http')
+        ? API_BASE_URL.replace(/\/api\/?$/, '')
+        : (window.location.origin.includes(':5173')
+          ? 'http://localhost:5000'
+          : window.location.origin);
       const newSocket = io(socketUrl);
       setSocket(newSocket);
 
@@ -92,6 +94,9 @@ export const AppProvider = ({ children }) => {
     const res = await api.post('/auth/login', { email, password });
     localStorage.setItem('token', res.data.token);
     setUser(res.data.user);
+    // Always land on the correct dashboard tab after login
+    const defaultTab = (res.data.user?.role === 'admin' || res.data.user?.role === 'hod') ? 'years' : 'overview';
+    setActiveTab(defaultTab);
     try {
       const fyRes = await api.get('/financialYears');
       const active = fyRes.data.find((fy) => fy.enabled && !fy.isArchived) || fyRes.data[0];

@@ -13,17 +13,51 @@ connectDB();
 const app = express();
 const server = http.createServer(app);
 const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
+const allowedOrigins = (process.env.CLIENT_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 fs.mkdirSync(uploadsDir, { recursive: true });
 
-const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+const corsOptions = {
+  origin(origin, callback) {
+    const isLocal = !origin || 
+                   origin.startsWith('http://localhost') || 
+                   origin.startsWith('http://127.0.0.1') ||
+                   origin.startsWith('http://192.168.') ||
+                   origin.startsWith('http://172.') ||
+                   origin.startsWith('http://10.');
+
+    if (isLocal || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
   },
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+};
+
+const io = new Server(server, {
+  cors: corsOptions,
 });
 
-app.use(cors());
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+app.use(helmet());
+app.use(cors(corsOptions));
 app.use(express.json());
+
+// Rate limit all auth requests
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // limit each IP to 20 requests per windowMs
+  message: { msg: 'Too many requests from this IP, please try again after 15 minutes' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api/auth', authLimiter);
+
 app.use('/uploads', express.static(uploadsDir));
 
 // Define Routes
@@ -49,7 +83,20 @@ app.get('/', (req, res) => {
   res.send('Mediclaim API is running');
 });
 
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    db: require('mongoose').connection.readyState === 1 ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ ok: true });
+});
+
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Local Access: http://localhost:${PORT}`);
 });

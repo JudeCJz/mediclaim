@@ -59,7 +59,7 @@ const InstallPrompt = () => {
 };
 
 const Protected = ({ children, role }) => {
-  const { user, loading } = useApp();
+  const { user, loading, activeFY } = useApp();
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main)', gap: '1.5rem' }}>
         <div style={{ width: '80px', height: '80px', background: 'var(--primary)', boxShadow: '0 0 50px var(--primary-glow)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse 2s infinite' }}>
@@ -70,7 +70,34 @@ const Protected = ({ children, role }) => {
   );
   if (!user) return <Navigate to="/login" />;
   if (role && user.role !== role) return <Navigate to="/" />;
-  return <div className="app-container"><Sidebar /><main className="main-content">{children}</main></div>;
+  
+  return (
+    <div className="app-container">
+      <Sidebar />
+      <main className="main-content">
+        {activeFY && (
+          <div style={{ 
+            marginBottom: '1rem', 
+            padding: '0.6rem 1rem', 
+            background: 'var(--primary)10', 
+            border: '1px solid var(--primary)30',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '10px',
+            fontSize: '0.65rem',
+            fontWeight: 900,
+            letterSpacing: '1px',
+            color: 'var(--primary)',
+            textTransform: 'uppercase'
+          }}>
+            <ShieldCheck size={12} /> ACTIVE SESSION: FY {activeFY.name}
+          </div>
+        )}
+        {children}
+      </main>
+    </div>
+  );
 };
 
 const Home = () => {

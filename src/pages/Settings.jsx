@@ -1,11 +1,20 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import api from '../api';
-import { Lock, ShieldCheck, Loader2, Save, Key, AlertCircle, CheckCircle, Eye, EyeOff, User } from 'lucide-react';
+import { ShieldCheck, Loader2, Key, User } from 'lucide-react';
 
 const Settings = () => {
     const { user, updateProfile } = useApp();
-    const [name, setName] = useState(user?.name || '');
+    const [profile, setProfile] = useState({
+        name: user?.name || '',
+        empId: user?.empId || '',
+        phone: user?.phone || '',
+        department: user?.department || '',
+        designation: user?.designation || '',
+        gender: user?.gender || 'Male',
+        doj: user?.doj || ''
+    });
+
     const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' });
     const [showPass, setShowPass] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
@@ -62,41 +71,63 @@ const Settings = () => {
     };
 
     return (
-        <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
-            <header style={{ marginBottom: '3rem', background: 'var(--primary)', padding: '1.5rem 2.5rem', boxShadow: '8px 8px 0px #000', border: '3px solid #000' }}>
-                <h1 style={{ fontSize: '2.5rem', fontWeight: 900, color: 'white', textTransform: 'uppercase', letterSpacing: '1px' }}>Account Settings</h1>
+        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+            <header style={{ marginBottom: '3rem', borderLeft: '12px solid var(--primary)', paddingLeft: '2rem' }}>
+                <h1 style={{ fontSize: 'clamp(2rem, 8vw, 2.5rem)', fontWeight: 900 }}>Account Settings</h1>
+                <p style={{ color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.9rem' }}>Manage your institutional profile and security credentials.</p>
             </header>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '2rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 500px), 1fr))', gap: '2rem' }}>
                 {/* PROFILE SECTION */}
-                <div className="glass-panel" style={{ padding: '2.5rem' }}>
+                <div className="glass-panel" style={{ padding: 'clamp(1.5rem, 5vw, 2.5rem)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2.5rem' }}>
                         <User size={24} color="var(--primary)" />
-                        <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1rem' }}>Profile Information</h2>
+                        <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1rem' }}>Master Enrollment Profile</h2>
                     </div>
 
-                    <div style={{ display: 'grid', gap: '1.2rem' }}>
-                        <div className="f-group">
-                            <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>Full Name</label>
-                            <input 
-                                type="text" className="glass-panel" 
-                                style={{ width: '100%', padding: '1rem', fontWeight: 700 }}
-                                value={name} onChange={e => setName(e.target.value)}
-                            />
+                    <div style={{ display: 'grid', gap: '1.5rem' }}>
+                        <div className="responsive-auto-grid" style={{ gap: '1rem' }}>
+                            <div className="f-group">
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>FULL NAME</label>
+                                <input type="text" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={profile.name} onChange={e => setProfile({...profile, name: e.target.value})} />
+                            </div>
+                            <div className="f-group">
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>EMPLOYEE ID</label>
+                                <input type="text" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={profile.empId} onChange={e => setProfile({...profile, empId: e.target.value})} />
+                            </div>
+                            <div className="f-group">
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>PHONE NUMBER</label>
+                                <input type="text" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={profile.phone} onChange={e => setProfile({...profile, phone: e.target.value})} />
+                            </div>
+                            <div className="f-group">
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>DEPARTMENT</label>
+                                <input type="text" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700, textTransform: 'uppercase' }} value={profile.department} onChange={e => setProfile({...profile, department: e.target.value})} />
+                            </div>
+                            <div className="f-group">
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>DESIGNATION</label>
+                                <input type="text" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={profile.designation} onChange={e => setProfile({...profile, designation: e.target.value})} />
+                            </div>
+                            <div className="f-group">
+                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>DATE OF JOINING</label>
+                                <input type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700, color: 'var(--text-main)' }} value={profile.doj} onChange={e => setProfile({...profile, doj: e.target.value})} />
+                            </div>
                         </div>
-                        <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={async () => {
+
+                        <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '1.2rem' }} onClick={async () => {
                             try {
-                                await updateProfile({ name });
-                                setAlertConfig({ title: 'Success', text: 'Personal record updated successfully.' });
-                            } catch (e) { setAlertConfig({ title: 'Error', text: 'Update failed.' }); }
+                                await updateProfile(profile);
+                                setAlertConfig({ title: 'Profile Synchronized', text: 'All enrollment details have been saved to your master record.' });
+                            } catch {
+                                setAlertConfig({ title: 'Error', text: 'Update failed. Check your network.' });
+                            }
                         }}>
-                             Update Profile
+                             SAVE MASTER PROFILE
                         </button>
                     </div>
                 </div>
 
                 {/* PASSWORD SECTION */}
-                <div className="glass-panel" style={{ padding: '2.5rem' }}>
+                <div className="glass-panel" style={{ padding: 'clamp(1.5rem, 5vw, 2.5rem)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2.5rem' }}>
                         <Key size={24} color="var(--primary)" />
                         <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1rem' }}>Security Settings</h2>
@@ -119,7 +150,7 @@ const Settings = () => {
                             placeholder="Current Password"
                             value={passwords.current} onChange={e => setPasswords({...passwords, current: e.target.value})}
                         />
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '1rem' }}>
                             <input 
                                 type={showPass ? "text" : "password"} required className="glass-panel" 
                                 style={{ width: '100%', padding: '1rem', fontWeight: 700 }}

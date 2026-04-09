@@ -1,45 +1,50 @@
-# 🛡️ Mediclaim Management System
+# Mediclaim Management System
 
-A high-performance, mobile-optimized insurance enrollment and management platform built for educational institutions. Designed with a premium "glassmorphism" aesthetic and powered by a robust Node.js, Express, and MongoDB backend.
+A mobile-friendly insurance enrollment and management platform for educational institutions, built with React, Express, and MongoDB.
 
-## ✨ Key Features
+## Key Features
 
--   **Unified Login System**: Automatic role detection for Administrators, Department Heads (HOD), and Faculty.
--   **HOD Dashboard**: Real-time enrollment tracking, department-wide personnel management, and automated email confirmation dispatch.
--   **Admin Control Center**: Financial Year (Cycle) management, coverage tier configuration, and secure faculty account bulk registration.
--   **Mobile-First Design**: Optimized for Android and high-density displays with responsive tables and touch-friendly controls.
--   **MongoDB Integration**: Secure data persistence with Mongoose for efficient querying and management.
+- Unified login for administrators, HODs, and faculty
+- Financial year management and enrollment controls
+- Faculty enrollment with dependent and document support
+- Audit logs and mail-dispatch workflows
+- MongoDB-backed persistence with Mongoose
 
-## 🚀 Getting Started
+## Local Setup
 
 ### Prerequisites
-- Node.js installed
-- MongoDB installed and running
 
-### Installation
+- Node.js
+- MongoDB
 
-1.  **Backend Setup**:
-    ```bash
-    cd server
-    npm install
-    cp .env.example .env # Update with your MONGO_URI
-    npm start
-    ```
+### Backend
 
-2.  **Frontend Setup**:
-    ```bash
-    npm install
-    npm run dev
-    ```
+```bash
+cd server
+npm install
+copy .env.example .env
+npm start
+```
 
-## 🛠️ Technology Stack
+### Frontend
 
--   **Frontend**: React (Vite)
--   **Backend**: Node.js, Express
--   **Database**: MongoDB (Mongoose)
--   **Icons**: Lucide React
--   **Styling**: Vanilla CSS (Custom Glassmorphism Design System)
+```bash
+npm install
+copy .env.example .env
+npm run dev
+```
 
----
+## Production Notes
 
-*Designed and refined for maximum administrative efficiency.*
+- Set `VITE_API_BASE_URL` to your deployed backend API, for example `https://your-backend.example.com/api`.
+- Set backend `CLIENT_ORIGIN` to your deployed frontend origin.
+- Set backend `PUBLIC_SERVER_URL` to your deployed backend origin so uploaded file URLs are absolute.
+- Route refreshes on Vercel are handled by [vercel.json](/D:/VS/PROJECTS/MediclaimSystem/vercel.json).
+- For production uploads, point `UPLOADS_DIR` to persistent storage instead of ephemeral local disk.
+
+## Stack
+
+- Frontend: React with Vite
+- Backend: Node.js and Express
+- Database: MongoDB with Mongoose
+- Real-time updates: Socket.IO
