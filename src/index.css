@@ -222,7 +222,6 @@ input, textarea, [contenteditable="true"] {
     }
 }
 
-/* BLOCKY UI BUTTONS */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -233,6 +232,10 @@ input, textarea, [contenteditable="true"] {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
+}
+
+.btn svg {
+  flex-shrink: 0 !important;
 }
 
 .btn-primary {
@@ -774,6 +777,10 @@ select {
     background: rgba(0,0,0,0.2);
 }
 
+[data-theme='light'] .table-responsive-premium {
+    background: var(--bg-card);
+}
+
 .data-table-premium {
     width: 100%;
     border-collapse: collapse;
@@ -789,6 +796,10 @@ select {
     color: var(--primary);
     border-bottom: 2px solid var(--border-glass);
     background: rgba(255,255,255,0.02);
+}
+
+[data-theme='light'] .data-table-premium th {
+    background: rgba(0,0,0,0.03);
 }
 
 .data-table-premium td {

@@ -23,4 +23,4 @@ const financialYearSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model('FinancialYear', financialYearSchema, 'SESSIONS.Cycles');
+module.exports = mongoose.model('FinancialYear', financialYearSchema);

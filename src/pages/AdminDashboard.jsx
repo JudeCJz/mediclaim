@@ -177,16 +177,6 @@ const AdminDashboard = () => {
         try {
             await api.patch(`/financialYears/${id}/toggle`, { enabled: !status });
             fetchData();
-            
-            // If we just disabled a year (!status was true, now it's false, so status was true)
-            // Or better: if NEW status is false (we just disabled it)
-            if (status) { // if it WAS enabled, now it's disabled
-               setAlertConfig({
-                   title: 'SESSION DISABLED',
-                   text: 'Enrollment window is now closed. Would you like to dispatch automated confirmation emails to all participants?',
-                   onConfirm: () => setShowMailModal(true)
-               });
-            }
         } catch (err) {
             console.error("Year toggle error:", err);
             setAlertConfig({ title: 'SYNC ERROR', type: 'danger', text: 'Institutional session state update failed.' });
@@ -323,20 +313,29 @@ const AdminDashboard = () => {
         }
     };
 
-    const broadcastAnnouncement = async (fyId, fyName) => {
-        setAlertConfig({
-            title: 'Broadcast Announcement?',
-            text: `This will send an automated notification about FY ${fyName} to EVERY active faculty and HOD account. Proceed?`,
-            onConfirm: async () => {
-                try {
-                    const res = await api.post('/mail/announce-cycle', { fyId });
-                    setAlertConfig({ title: 'Success', text: res.data.message });
-                } catch (err) {
-                    setAlertConfig({ title: 'Massive Error', text: err.response?.data?.msg || 'Broadcast dispatcher failed.' });
-                }
-            }
-        });
+    const toggleFacultyStatus = async (id, currentStatus) => {
+        try {
+            const newStatus = currentStatus === 'disabled' ? 'active' : 'disabled';
+            await api.put(`/users/${id}`, { status: newStatus });
+            fetchData();
+        } catch (err) {
+            console.error(err);
+            alert("Failed to update status.");
+        }
     };
+
+    const deleteFacultyUser = async (id) => {
+        if (!confirm("Delete this faculty account? This action cannot be undone.")) return;
+        try {
+            await api.delete(`/users/${id}`);
+            fetchData();
+        } catch (err) {
+            console.error(err);
+            alert("Failed to delete faculty user.");
+        }
+    };
+
+
 
     const dispatchBulkEmails = async () => {
         if (!activeFY) return;
@@ -489,28 +488,23 @@ const AdminDashboard = () => {
                             </div>
                         )}
 
-                        <div className="responsive-auto-grid" style={{ marginTop: '3rem', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-                            <div className="stat-card-premium" style={{ borderLeft: '6px solid var(--primary)', padding: '1.5rem' }}>
-                                <div className="stat-icon"><Users size={24} /></div>
-                                <div className="stat-val" style={{ fontSize: '2.5rem' }}>{faculty.length}</div>
-                                <div className="stat-lab">TOTAL FACULTY MEMBERS</div>
+                        <div className="responsive-auto-grid" style={{ marginTop: '2rem', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem' }}>
+                            <div className="stat-card-premium" style={{ borderLeft: '4px solid var(--primary)', padding: '1rem' }}>
+                                <div className="stat-icon" style={{ opacity: 0.05, transform: 'scale(2.5)' }}><Users size={20} /></div>
+                                <div className="stat-val" style={{ fontSize: '1.8rem', marginBottom: '0.2rem' }}>{faculty.length}</div>
+                                <div className="stat-lab" style={{ fontSize: '0.65rem' }}>TOTAL FACULTY</div>
                             </div>
-                            <div className="stat-card-premium" style={{ borderLeft: '6px solid #22c55e', padding: '1.5rem' }}>
-                                <div className="stat-icon"><CheckCircle size={24} /></div>
-                                <div className="stat-val" style={{ fontSize: '2.5rem' }}>{submissions.filter(s => !s.archived && s.fyId === (activeFY?._id || activeFY?.id)).length}</div>
-                                <div className="stat-lab">SUCCESSFUL ENROLLMENTS</div>
+                            <div className="stat-card-premium" style={{ borderLeft: '4px solid #22c55e', padding: '1rem' }}>
+                                <div className="stat-icon" style={{ opacity: 0.05, transform: 'scale(2.5)' }}><CheckCircle size={20} /></div>
+                                <div className="stat-val" style={{ fontSize: '1.8rem', marginBottom: '0.2rem' }}>{submissions.filter(s => !s.archived && s.fyId === (activeFY?._id || activeFY?.id)).length}</div>
+                                <div className="stat-lab" style={{ fontSize: '0.65rem' }}>ENROLLED</div>
                             </div>
-                            <div className="stat-card-premium" style={{ borderLeft: '6px solid #f59e0b', padding: '1.5rem' }}>
-                                <div className="stat-icon"><Clock size={24} /></div>
-                                <div className="stat-val" style={{ fontSize: '2.5rem' }}>
+                            <div className="stat-card-premium" style={{ borderLeft: '4px solid #f59e0b', padding: '1rem' }}>
+                                <div className="stat-icon" style={{ opacity: 0.05, transform: 'scale(2.5)' }}><Clock size={20} /></div>
+                                <div className="stat-val" style={{ fontSize: '1.8rem', marginBottom: '0.2rem' }}>
                                     {Math.max(0, faculty.filter(f => f.status !== 'disabled').length - submissions.filter(s => !s.archived && s.fyId === (activeFY?._id || activeFY?.id)).length)}
                                 </div>
-                                <div className="stat-lab">AWAITING SUBMISSIONS</div>
-                            </div>
-                            <div className="stat-card-premium" style={{ borderLeft: '6px solid #ef4444', padding: '1.5rem' }}>
-                                <div className="stat-icon"><Settings size={24} /></div>
-                                <div className="stat-val" style={{ fontSize: '2.5rem' }}>{years.length}</div>
-                                <div className="stat-lab">RECORDED HISTORY</div>
+                                <div className="stat-lab" style={{ fontSize: '0.65rem' }}>AWAITING</div>
                             </div>
                         </div>
                     </div>
@@ -601,7 +595,7 @@ const AdminDashboard = () => {
                                 const cycleId = y._id || y.id;
                                 const count = submissions.filter(s => !s.archived && s.fyId === cycleId).length;
                                 return (
-                                    <div key={cycleId} className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem', borderLeft: `6px solid ${y.enabled ? '#22c55e' : '#ef4444'}` }}>
+                                    <div key={cycleId} className="glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem', borderLeft: `6px solid ${y.enabled ? '#22c55e' : '#ef4444'}` }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <div style={{ fontWeight: 900, fontSize: '1.2rem' }}>FY {y.name}</div>
                                             <div style={{ fontSize: '0.6rem', fontWeight: 900, padding: '0.3rem 0.6rem', background: y.enabled ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: y.enabled ? '#22c55e' : '#ef4444', border: '1px solid currentColor' }}>
@@ -614,13 +608,17 @@ const AdminDashboard = () => {
                                             ))}
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid var(--border-glass)', gap: '1rem' }}>
-                                            <button className="btn btn-ghost" style={{ flex: 1, height: '45px', fontSize: '0.65rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', padding: '0.5rem' }} onClick={() => exportCSV(cycleId, y.name)}>
-                                                <Download size={14} /> 
-                                                <span style={{ fontWeight: 900 }}>{count} RECORDS</span>
+                                            <button className="btn btn-ghost" style={{ flex: 1, minHeight: '45px', fontSize: '0.85rem', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '0.5rem' }} onClick={() => exportCSV(cycleId, y.name)}>
+                                                <Download size={18} style={{ flexShrink: 0 }} /> 
+                                                <span style={{ fontWeight: 900, whiteSpace: 'nowrap' }}>{count} RECORDS</span>
                                             </button>
-                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                <button className="btn btn-ghost" style={{ width: '45px', height: '45px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => openEdit(y)}><Edit size={16} /></button>
-                                                <button className="btn btn-ghost" style={{ width: '45px', height: '45px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444' }} onClick={() => deleteFY(cycleId)}><Trash2 size={16} /></button>
+                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
+                                                <label className="inst-switch" style={{ transform: 'scale(0.8)', flexShrink: 0, margin: 0 }}>
+                                                    <input type="checkbox" checked={y.enabled} onChange={() => toggleYear(y._id || y.id, y.enabled)} />
+                                                    <span className="inst-slider"></span>
+                                                </label>
+                                                <button className="btn btn-ghost" style={{ width: '44px', height: '44px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }} onClick={() => openEdit(y)}><Edit size={20} style={{ flexShrink: 0 }} /></button>
+                                                <button className="btn btn-ghost" style={{ width: '44px', height: '44px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', flexShrink: 0 }} onClick={() => deleteFY(cycleId)}><Trash2 size={20} style={{ flexShrink: 0 }} /></button>
                                             </div>
                                         </div>
                                     </div>
@@ -648,15 +646,7 @@ const AdminDashboard = () => {
                             >
                                 <Mail size={18} /> SEND BULK EMAIL
                             </button>
-                            {activeFY && (
-                                <button 
-                                    className="btn btn-ghost"
-                                    style={{ padding: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', border: '1px solid #22c55e', color: '#22c55e', fontWeight: 900, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
-                                    onClick={() => broadcastAnnouncement(activeFY.id || activeFY._id, activeFY.name)}
-                                >
-                                    <Megaphone size={18} /> BROADCAST ANNOUNCEMENT
-                                </button>
-                            )}
+
                             <button 
                                 className="btn btn-primary" 
                                 style={{ 
@@ -892,12 +882,24 @@ const AdminDashboard = () => {
                         </div>
                         <div className="table-responsive-premium">
                             <table className="data-table-premium">
-                                <thead><tr><th>Member</th><th>Dept</th></tr></thead>
+                                <thead><tr><th>Member</th><th>Dept</th><th style={{ textAlign: 'right' }}>Actions</th></tr></thead>
                                 <tbody>
                                     {faculty.filter(f => f.name?.toLowerCase().includes(facultySearch.toLowerCase()) || f.email?.toLowerCase().includes(facultySearch.toLowerCase())).map(f => (
                                         <tr key={f._id || f.id} style={{ opacity: f.status === 'disabled' ? 0.4 : 1 }}>
                                             <td>{f.name}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{f.email}</div></td>
                                             <td>{f.department || 'N/A'}</td>
+                                            <td style={{ textAlign: 'right', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                                <button 
+                                                    className="btn btn-ghost" 
+                                                    style={{ padding: '0.5rem', color: f.status === 'disabled' ? '#22c55e' : '#f59e0b', border: '1px solid currentColor' }} 
+                                                    onClick={() => toggleFacultyStatus(f._id || f.id, f.status)}
+                                                >
+                                                    {f.status === 'disabled' ? <><Unlock size={16} /> Enable</> : <><Lock size={16} /> Disable</>}
+                                                </button>
+                                                <button className="btn btn-ghost" style={{ padding: '0.5rem', color: '#ef4444', border: '1px solid currentColor' }} onClick={() => deleteFacultyUser(f._id || f.id)}>
+                                                    <Trash2 size={16} /> Delete
+                                                </button>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -910,29 +912,29 @@ const AdminDashboard = () => {
 
             {showFYModal && (
                 <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.98)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(30px)' }}>
-                    <div className="glass-panel" style={{ width: '95%', maxWidth: '900px', maxHeight: '90vh', overflowY: 'auto', padding: '3rem', position: 'relative' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3rem', position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 10, padding: '1rem 0', borderBottom: '1px solid var(--border-glass)' }}>
+                    <div className="glass-panel" style={{ width: '95%', maxWidth: '900px', maxHeight: '90vh', overflowY: 'auto', padding: 'clamp(1rem, 5vw, 3rem)', position: 'relative' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'clamp(1.5rem, 5vw, 3rem)', position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 10, padding: '1rem 0', borderBottom: '1px solid var(--border-glass)' }}>
                             <h2 style={{ fontSize: '1.8rem', fontWeight: 900 }}>{editingFYId ? 'Update Session Settings' : 'Initialize New Cycle'}</h2>
                             <button className="btn btn-ghost" onClick={() => setShowFYModal(false)}><X /></button>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', marginBottom: '3rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2.5rem' }}>
                             <div className="f-group">
                                 <label style={{ fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.8rem', display: 'block' }}>CYCLE IDENTIFIER</label>
-                                <input className="glass-panel" style={{ width: '100%', padding: '1.2rem', fontWeight: 700 }} value={newFY.name} onChange={e => setNewFY({ ...newFY, name: e.target.value })} placeholder="e.g. 2026-2027" />
+                                <input className="glass-panel" style={{ width: '100%', padding: '1rem', fontWeight: 700 }} value={newFY.name} onChange={e => setNewFY({ ...newFY, name: e.target.value })} placeholder="e.g. 2026-2027" />
                             </div>
                             <div className="f-group">
                                 <label style={{ fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.8rem', display: 'block' }}>SUBMISSION DEADLINE</label>
-                                <input type="date" className="glass-panel" style={{ width: '100%', padding: '1.2rem', fontWeight: 700 }} value={newFY.lastSubmissionDate} onChange={e => setNewFY({ ...newFY, lastSubmissionDate: e.target.value })} />
+                                <input type="date" className="glass-panel" style={{ width: '100%', padding: '1rem', fontWeight: 700 }} value={newFY.lastSubmissionDate} onChange={e => setNewFY({ ...newFY, lastSubmissionDate: e.target.value })} />
                             </div>
                         </div>
 
                         {/* PLAN CONFIGURATION */}
-                        <div style={{ marginBottom: '4rem' }}>
+                        <div style={{ marginBottom: '3rem' }}>
                             <h3 style={{ fontSize: '1.1rem', fontWeight: 900, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}><ShieldCheck size={22} color="var(--primary)" /> Coverage Plans</h3>
                             <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
-                                <input className="glass-panel" style={{ flex: 1, minWidth: '200px', padding: '1rem' }} placeholder="Plan Label (e.g. 5 Lakhs)" value={tempPolicy.label} onChange={e => setTempPolicy({ ...tempPolicy, label: e.target.value })} />
-                                <input type="number" className="glass-panel" style={{ width: '150px', padding: '1rem' }} placeholder="Base Premium" value={tempPolicy.premium} onChange={e => setTempPolicy({ ...tempPolicy, premium: e.target.value })} />
+                                <input className="glass-panel" style={{ flex: 1, minWidth: '130px', padding: '1rem' }} placeholder="Plan Label (e.g. 5 Lakhs)" value={tempPolicy.label} onChange={e => setTempPolicy({ ...tempPolicy, label: e.target.value })} />
+                                <input type="number" className="glass-panel" style={{ width: '120px', padding: '1rem' }} placeholder="Base Premium" value={tempPolicy.premium} onChange={e => setTempPolicy({ ...tempPolicy, premium: e.target.value })} />
                                 <button className="btn btn-primary" onClick={addPolicyToFY}>ADD PLAN</button>
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
@@ -949,10 +951,10 @@ const AdminDashboard = () => {
                         </div>
 
                         {/* DEPENDENCY RULES */}
-                        <div style={{ marginBottom: '4rem', padding: '2.5rem', background: 'rgba(255,255,255,0.02)', border: '2px solid var(--border-glass)' }}>
-                            <h3 style={{ fontSize: '1.1rem', fontWeight: 900, marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '10px' }}><Users size={22} color="var(--primary)" /> Family Member Controls</h3>
+                        <div style={{ marginBottom: '3rem', padding: 'clamp(1rem, 4vw, 2.5rem)', background: 'rgba(255,255,255,0.02)', border: '2px solid var(--border-glass)' }}>
+                            <h3 style={{ fontSize: '1.1rem', fontWeight: 900, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}><Users size={22} color="var(--primary)" /> Family Member Controls</h3>
                             
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '2rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1.5rem' }}>
                                 {/* Spouse */}
                                 <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.2)' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>

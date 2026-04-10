@@ -55,40 +55,9 @@ const claimSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
+
 claimSchema.index({ userId: 1, fyId: 1 }, { unique: true });
 
-// Hook to sync with per-cycle collections for "Folder" view in Compass
-claimSchema.post('save', async function(doc) {
-  try {
-    const fyNameClean = doc.fyName.replace(/[^a-zA-Z0-9]/g, '_');
-    const cycleCollectionName = `SESSIONS.CYCLES.${fyNameClean}.Claims`;
-    const db = mongoose.connection.db;
-    
-    // Convert doc to plain object and remove _id to let it be secondary, or keep it to be a true mirror
-    const data = doc.toObject();
-    
-    // We update/insert into the cycle-specific folder
-    await db.collection(cycleCollectionName).updateOne(
-      { userId: doc.userId, fyId: doc.fyId }, 
-      { $set: data }, 
-      { upsert: true }
-    );
-  } catch (err) {
-    console.error("Sync to cycle collection failed:", err);
-  }
-});
+module.exports = mongoose.model('Claim', claimSchema);
 
-// Also handle deletions
-claimSchema.post('findOneAndDelete', async function(doc) {
-  if (!doc) return;
-  try {
-    const fyNameClean = doc.fyName.replace(/[^a-zA-Z0-9]/g, '_');
-    const cycleCollectionName = `SESSIONS.CYCLES.${fyNameClean}.Claims`;
-    const db = mongoose.connection.db;
-    await db.collection(cycleCollectionName).deleteOne({ userId: doc.userId, fyId: doc.fyId });
-  } catch (err) {
-    console.error("Sync delete to cycle collection failed:", err);
-  }
-});
 
-module.exports = mongoose.model('Claim', claimSchema, 'SESSIONS.All_Enrollments');
