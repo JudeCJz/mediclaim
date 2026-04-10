@@ -11,6 +11,7 @@ dotenv.config();
 connectDB();
 
 const app = express();
+app.set('trust proxy', 1); // Fixes express-rate-limit "ERR_ERL_UNEXPECTED_X_FORWARDED_FOR" on Render
 const server = http.createServer(app);
 const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
 const allowedOrigins = (process.env.CLIENT_ORIGIN || '')
