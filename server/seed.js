@@ -11,7 +11,7 @@ const seed = async () => {
         console.log('Seed: Connected to MongoDB');
 
         const salt = await bcrypt.genSalt(10);
-        const adminPassword = await bcrypt.hash('admin123', salt);
+        const adminPassword = await bcrypt.hash('admin@college.edu', salt);
         const facultyPassword = await bcrypt.hash('faculty123', salt);
 
         // Upsert Admin
