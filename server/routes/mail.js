@@ -35,24 +35,27 @@ const sendMail = async ({ to, subject, html }) => {
   const recipients = Array.isArray(to) ? to : [to];
 
   if (!transporter) {
-    console.warn('SMTP not configured. Email request accepted but not sent.');
-    return {
-      accepted: recipients,
-      queued: true
-    };
+    const error = new Error('SMTP_NOT_CONFIGURED: Missing email environment variables on the server.');
+    console.error(error.message);
+    throw error;
   }
 
-  const info = await transporter.sendMail({
-    from: process.env.SMTP_FROM,
-    to: recipients.join(', '),
-    subject,
-    html
-  });
+  try {
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_FROM,
+      to: recipients.join(', '),
+      subject,
+      html
+    });
 
-  return {
-    accepted: info.accepted,
-    rejected: info.rejected
-  };
+    return {
+      accepted: info.accepted,
+      rejected: info.rejected
+    };
+  } catch (err) {
+    console.error('Nodemailer Error:', err);
+    throw err;
+  }
 };
 
 router.post('/', auth, async (req, res) => {
