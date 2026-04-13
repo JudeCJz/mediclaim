@@ -14,7 +14,16 @@ const getTransporter = async () => {
     SMTP_FROM
   } = process.env;
 
+  console.log('--- MAIL SYSTEM DIAGNOSTICS ---');
+  console.log('SMTP_HOST:', SMTP_HOST || 'MISSING');
+  console.log('SMTP_PORT:', SMTP_PORT || 'MISSING');
+  console.log('SMTP_USER:', SMTP_USER || 'MISSING');
+  console.log('SMTP_FROM:', SMTP_FROM || 'MISSING');
+  console.log('SMTP_PASS:', SMTP_PASS ? 'PRESENT (HIDDEN)' : 'MISSING');
+  console.log('-------------------------------');
+
   if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !SMTP_FROM) {
+    console.error('CRITICAL: Mail system failed to initialize due to missing variables.');
     return null;
   }
 
