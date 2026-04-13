@@ -206,6 +206,48 @@ router.post('/announce-cycle', adminAuth, async (req, res) => {
     }
 });
 
+router.post('/dispatch-reminder', adminAuth, async (req, res) => {
+    const { userId, fyId } = req.body;
+    if (!userId || !fyId) return res.status(400).json({ msg: 'userId and fyId are required' });
+
+    try {
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ msg: 'User not found' });
+        
+        const fy = await FinancialYear.findById(fyId);
+        if (!fy) return res.status(404).json({ msg: 'Financial cycle not found' });
+
+        await sendMail({
+            to: [user.email],
+            subject: `[REMINDER] Mediclaim Enrollment Pending: FY ${fy.name}`,
+            html: `
+                <div style="font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #1a1a1a; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; padding: 40px; border-top: 8px solid #f59e0b;">
+                    <h1 style="color: #f59e0b; margin-bottom: 20px; font-weight: 900; text-transform: uppercase;">Enrollment Reminder</h1>
+                    <p style="font-size: 1.1rem;">Dear <strong>${user.name}</strong>,</p>
+                    <p>This is a reminder that you have not yet completed your Mediclaim insurance enrollment for <strong>Financial Year ${fy.name}</strong>.</p>
+                    
+                    <div style="background: #fffbeb; padding: 25px; border-radius: 8px; margin: 30px 0; border: 1px solid #fef3c7; text-align: center;">
+                        <p style="margin: 0; color: #92400e; font-weight: 700;">Deadline: ${fy.lastSubmissionDate ? new Date(fy.lastSubmissionDate).toLocaleDateString() : 'NO LIMIT'}</p>
+                    </div>
+
+                    <p>Please log in to the portal at your earliest convenience to select your coverage plan and add your dependents. Failure to enroll before the deadline will result in a loss of coverage for this cycle.</p>
+                    
+                    <div style="margin: 30px 0; text-align: center;">
+                        <a href="${process.env.CLIENT_ORIGIN || '#'}" style="background: #f59e0b; color: white; padding: 15px 35px; text-decoration: none; border-radius: 5px; font-weight: 900; text-transform: uppercase; display: inline-block;">Complete Enrollment Now</a>
+                    </div>
+
+                    <p style="font-size: 0.85rem; color: #64748b; margin-top: 50px; border-top: 1px solid #f1f5f9; padding-top: 20px;">Note: This is an automated reminder. If you have already submitted your form, please ignore this message.</p>
+                </div>
+            `
+        });
+
+        res.json({ message: 'Reminder sent successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ msg: 'Failed to send reminder email' });
+    }
+});
+
 const EmailTemplate = require('../models/EmailTemplate');
 
 // Seed default "Early Bird" template if none exist

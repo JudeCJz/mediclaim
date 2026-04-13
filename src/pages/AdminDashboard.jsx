@@ -369,11 +369,23 @@ const AdminDashboard = () => {
 
     const sendSingleConfirmation = async (submission) => {
         try {
-            await api.post('/mail/dispatch-confirmations', { claimIds: [submission._id || submission.id] });
-            setAlertConfig({ title: 'EMAIL SENT', text: `Confirmation email dispatched to ${submission.email}.` });
+            if (submission.isReminder) {
+                // For un-enrolled staff reminders
+                const activeFYId = activeFY?._id || activeFY?.id;
+                if (!activeFYId) return alert("Select an active cycle first.");
+                await api.post('/mail/dispatch-reminder', { 
+                    userId: submission._id || submission.id,
+                    fyId: activeFYId 
+                });
+                setAlertConfig({ title: 'REMINDER SENT', text: `Enrollment reminder dispatched to ${submission.email}.` });
+            } else {
+                // For existing enrollment confirmations
+                await api.post('/mail/dispatch-confirmations', { claimIds: [submission._id || submission.id] });
+                setAlertConfig({ title: 'EMAIL SENT', text: `Confirmation email dispatched to ${submission.email}.` });
+            }
         } catch (err) {
             console.error(err);
-            setAlertConfig({ title: 'EMAIL FAILED', text: 'Could not send confirmation email.' });
+            setAlertConfig({ title: 'EMAIL FAILED', text: 'Could not send email. Please check server logs.' });
         }
     };
 
