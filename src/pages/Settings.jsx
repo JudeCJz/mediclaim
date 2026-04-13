@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import api from '../api';
 import { ShieldCheck, Loader2, Key, User } from 'lucide-react';
+import DefaultRoleAvatar from '../components/DefaultRoleAvatar';
 
 const Settings = () => {
     const { user, updateProfile } = useApp();
     const [profile, setProfile] = useState({
         name: user?.name || '',
+        email: user?.email || '',
         empId: user?.empId || '',
         phone: user?.phone || '',
         department: user?.department || '',
@@ -24,16 +26,16 @@ const Settings = () => {
     const AlertModal = ({ config, onClose }) => {
         if (!config.title) return null;
         return (
-            <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', backdropFilter: 'blur(8px)' }}>
-                <div className="glass-panel animate-pop" style={{ width: '90%', maxWidth: '450px', padding: '3rem', textAlign: 'center', border: '2px solid var(--border-glass)', background: 'var(--bg-card)', boxShadow: '20px 20px 0px rgba(0,0,0,0.4)' }}>
-                    <div style={{ width: '80px', height: '80px', background: 'var(--primary-glow)', borderRadius: '15px', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 2rem' }}>
-                        <ShieldCheck size={40} />
+            <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', backdropFilter: 'blur(4px)' }}>
+                <div className="glass-panel" style={{ width: '90%', maxWidth: '420px', padding: '2rem', textAlign: 'center', border: '0.5px solid var(--border-color)', background: 'var(--bg-surface)', boxShadow: 'none', borderRadius: '12px' }}>
+                    <div style={{ width: '56px', height: '56px', background: 'var(--bg-card)', borderRadius: '12px', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+                        <ShieldCheck size={28} />
                     </div>
-                    <h2 style={{ fontSize: '2rem', fontWeight: 900, marginBottom: '1rem', textTransform: 'uppercase' }}>{config.title}</h2>
-                    <p style={{ opacity: 0.7, fontWeight: 700, marginBottom: '2.5rem' }}>{config.text}</p>
-                    <div style={{ display: 'grid', gridTemplateColumns: config.onConfirm ? '1fr 1fr' : '1fr', gap: '1rem' }}>
-                        {config.onConfirm && <button className="btn btn-ghost" style={{ padding: '1.2rem', fontWeight: 900 }} onClick={onClose}>CANCEL</button>}
-                        <button className="btn btn-primary" style={{ padding: '1.2rem', fontWeight: 900 }} onClick={() => { if (config.onConfirm) config.onConfirm(); onClose(); }}>
+                    <h2 style={{ fontSize: '18px', fontWeight: 500, marginBottom: '0.5rem', color: 'var(--text-main)' }}>{config.title}</h2>
+                    <p style={{ fontSize: '13px', fontWeight: 400, color: 'var(--text-muted)', marginBottom: '2rem', lineHeight: 1.5 }}>{config.text}</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: config.onConfirm ? '1fr 1fr' : '1fr', gap: '0.75rem' }}>
+                        {config.onConfirm && <button className="btn btn-ghost" style={{ padding: '10px', fontSize: '13px', border: '0.5px solid var(--border-color)' }} onClick={onClose}>CANCEL</button>}
+                        <button className="btn btn-primary" style={{ padding: '10px', fontSize: '13px' }} onClick={() => { if (config.onConfirm) config.onConfirm(); onClose(); }}>
                             {config.onConfirm ? 'CONFIRM' : 'OK'}
                         </button>
                     </div>
@@ -71,49 +73,51 @@ const Settings = () => {
     };
 
     return (
-        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-            <header style={{ marginBottom: '3rem', borderLeft: '12px solid var(--primary)', paddingLeft: '2rem' }}>
-                <h1 style={{ fontSize: 'clamp(2rem, 8vw, 2.5rem)', fontWeight: 900 }}>Account Settings</h1>
-                <p style={{ color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.9rem' }}>Manage your institutional profile and security credentials.</p>
+        <div style={{ width: '100%', boxSizing: 'border-box' }}>
+            <header style={{ marginBottom: '1rem' }}>
+                <h1 style={{ fontSize: '22px', fontWeight: 500, color: 'var(--text-main)' }}>Account Settings</h1>
+                <p style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: '13px', marginTop: '4px' }}>Manage your institutional profile and security credentials.</p>
             </header>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 500px), 1fr))', gap: '2rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: '1.5rem' }}>
                 {/* PROFILE SECTION */}
-                <div className="glass-panel" style={{ padding: 'clamp(1.5rem, 5vw, 2.5rem)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2.5rem' }}>
-                        <User size={24} color="var(--primary)" />
-                        <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1rem' }}>Master Enrollment Profile</h2>
+                <div className="glass-panel" style={{ padding: '1.5rem', background: 'var(--bg-surface)', border: '0.5px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+                        <DefaultRoleAvatar role={user?.role} name={user?.name} size={56} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                            <h2 style={{ fontWeight: 500, color: 'var(--text-main)', fontSize: '15px' }}>Member Profile</h2>
+                        </div>
                     </div>
 
                     <div style={{ display: 'grid', gap: '1.5rem' }}>
                         <div className="responsive-auto-grid" style={{ gap: '1rem' }}>
-                            <div className="f-group">
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>FULL NAME</label>
-                                <input type="text" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={profile.name} onChange={e => setProfile({...profile, name: e.target.value})} />
-                            </div>
-                            <div className="f-group">
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>EMPLOYEE ID</label>
-                                <input type="text" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={profile.empId} onChange={e => setProfile({...profile, empId: e.target.value})} />
-                            </div>
-                            <div className="f-group">
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>PHONE NUMBER</label>
-                                <input type="text" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={profile.phone} onChange={e => setProfile({...profile, phone: e.target.value})} />
-                            </div>
-                            <div className="f-group">
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>DEPARTMENT</label>
-                                <input type="text" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700, textTransform: 'uppercase' }} value={profile.department} onChange={e => setProfile({...profile, department: e.target.value})} />
-                            </div>
-                            <div className="f-group">
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>DESIGNATION</label>
-                                <input type="text" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={profile.designation} onChange={e => setProfile({...profile, designation: e.target.value})} />
-                            </div>
-                            <div className="f-group">
-                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6, display: 'block', marginBottom: '0.5rem' }}>DATE OF JOINING</label>
-                                <input type="date" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700, color: 'var(--text-main)' }} value={profile.doj} onChange={e => setProfile({...profile, doj: e.target.value})} />
+                            {[
+                                { lab: 'FULL NAME', key: 'name', solid: user?.role !== 'admin' },
+                                { lab: 'EMAIL ADDRESS', key: 'email', solid: user?.role !== 'admin' },
+                                { lab: 'EMPLOYEE ID', key: 'empId' },
+                                { lab: 'PHONE NUMBER', key: 'phone' },
+                                { lab: 'DEPARTMENT', key: 'department', up: true, solid: user?.role !== 'admin' },
+                                { lab: 'DESIGNATION', key: 'designation' }
+                            ].map(f => (
+                                <div key={f.key}>
+                                    <label style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>{f.lab}</label>
+                                    <input 
+                                        type="text" 
+                                        disabled={f.solid} 
+                                        className="input-premium" 
+                                        style={{ width: '100%', background: f.solid ? 'var(--bg-card)' : 'transparent', cursor: f.solid ? 'not-allowed' : 'text', opacity: f.solid ? 0.7 : 1 }} 
+                                        value={profile[f.key]} 
+                                        onChange={e => setProfile({...profile, [f.key]: f.up ? e.target.value.toUpperCase() : e.target.value})} 
+                                    />
+                                </div>
+                            ))}
+                            <div>
+                                <label style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>DATE OF JOINING</label>
+                                <input type="date" className="input-premium" style={{ width: '100%', background: 'transparent' }} value={profile.doj} onChange={e => setProfile({...profile, doj: e.target.value})} />
                             </div>
                         </div>
 
-                        <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '1.2rem' }} onClick={async () => {
+                        <button className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: '13px', marginTop: '1rem' }} onClick={async () => {
                             try {
                                 await updateProfile(profile);
                                 setAlertConfig({ title: 'Profile Synchronized', text: 'All enrollment details have been saved to your master record.' });
@@ -127,53 +131,53 @@ const Settings = () => {
                 </div>
 
                 {/* PASSWORD SECTION */}
-                <div className="glass-panel" style={{ padding: 'clamp(1.5rem, 5vw, 2.5rem)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2.5rem' }}>
-                        <Key size={24} color="var(--primary)" />
-                        <h2 style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1rem' }}>Security Settings</h2>
+                <div className="glass-panel" style={{ padding: '1.5rem', background: 'var(--bg-surface)', border: '0.5px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1.5rem' }}>
+                        <Key size={20} color="var(--primary)" />
+                        <h2 style={{ fontWeight: 500, color: 'var(--text-main)', fontSize: '15px' }}>Security Settings</h2>
                     </div>
 
                     {message.text && (
                         <div style={{ 
-                            padding: '1rem', marginBottom: '1.5rem', 
-                            background: message.type === 'error' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)',
-                            border: `2px solid ${message.type === 'error' ? '#ef4444' : '#22c55e'}`,
-                            color: message.type === 'error' ? '#ef4444' : '#22c55e',
-                            fontWeight: 800, fontSize: '0.75rem'
+                            padding: '10px', marginBottom: '1rem', 
+                            background: message.type === 'error' ? 'rgba(163, 45, 45, 0.05)' : 'rgba(59, 109, 17, 0.05)',
+                            border: `0.5px solid ${message.type === 'error' ? '#A32D2D' : '#3B6D11'}`,
+                            color: message.type === 'error' ? '#A32D2D' : '#3B6D11',
+                            fontWeight: 500, fontSize: '12px', borderRadius: '4px'
                         }}>{message.text}</div>
                     )}
 
-                    <form onSubmit={handlePasswordChange} style={{ display: 'grid', gap: '1.2rem' }}>
+                    <form onSubmit={handlePasswordChange} style={{ display: 'grid', gap: '1rem' }}>
                         <input 
-                            type={showPass ? "text" : "password"} required className="glass-panel" 
-                            style={{ width: '100%', padding: '1rem', fontWeight: 700 }}
+                            type={showPass ? "text" : "password"} required className="input-premium" 
+                            style={{ width: '100%', background: 'transparent' }}
                             placeholder="Current Password"
                             value={passwords.current} onChange={e => setPasswords({...passwords, current: e.target.value})}
                         />
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
                             <input 
-                                type={showPass ? "text" : "password"} required className="glass-panel" 
-                                style={{ width: '100%', padding: '1rem', fontWeight: 700 }}
+                                type={showPass ? "text" : "password"} required className="input-premium" 
+                                style={{ width: '100%', background: 'transparent' }}
                                 placeholder="New Password"
                                 value={passwords.next} onChange={e => setPasswords({...passwords, next: e.target.value})}
                             />
                             <input 
-                                type={showPass ? "text" : "password"} required className="glass-panel" 
-                                style={{ width: '100%', padding: '1rem', fontWeight: 700 }}
+                                type={showPass ? "text" : "password"} required className="input-premium" 
+                                style={{ width: '100%', background: 'transparent' }}
                                 placeholder="Confirm New"
                                 value={passwords.confirm} onChange={e => setPasswords({...passwords, confirm: e.target.value})}
                             />
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'rgba(255,255,255,0.02)', padding: '0.6rem 1rem', border: '1px solid var(--border-glass)', marginTop: '0.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--bg-card)', padding: '10px 14px', borderRadius: '8px', border: '0.5px solid var(--border-color)' }}>
                             <label className="inst-switch">
                                 <input type="checkbox" checked={showPass} onChange={e => setShowPass(e.target.checked)} />
                                 <span className="inst-slider"></span>
                             </label>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)' }}>Show Password</span>
+                            <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>Show Password</span>
                         </div>
 
-                        <button className="btn btn-primary" type="submit" style={{ width: '100%', justifyContent: 'center', marginTop: '1rem' }} disabled={isUpdating}>
+                        <button className="btn btn-primary" type="submit" style={{ width: '100%', padding: '12px', fontSize: '13px', marginTop: '0.5rem' }} disabled={isUpdating}>
                             {isUpdating ? <Loader2 className="animate-spin" size={20} /> : 'Update Password'}
                         </button>
                     </form>

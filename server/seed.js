@@ -12,7 +12,7 @@ const seed = async () => {
 
         const salt = await bcrypt.genSalt(10);
         const adminPassword = await bcrypt.hash('admin@college.edu', salt);
-        const facultyPassword = await bcrypt.hash('faculty123', salt);
+        const facultyPassword = await bcrypt.hash('faculty@college.edu', salt);
 
         // Upsert Admin
         await User.updateOne(

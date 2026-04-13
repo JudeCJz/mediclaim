@@ -14,6 +14,13 @@ const AdminDashboard = () => {
     const [showFYModal, setShowFYModal] = useState(false);
     const [showMailModal, setShowMailModal] = useState(false);
     const [expandedFolders, setExpandedFolders] = useState({});
+
+    // Custom Templates State
+    const [templates, setTemplates] = useState([]);
+    const [showTemplateModal, setShowTemplateModal] = useState(false);
+    const [selectedFyForMail, setSelectedFyForMail] = useState(null);
+    const [newTemplate, setNewTemplate] = useState({ name: '', subject: '', html: '' });
+    const [selectedTemplateId, setSelectedTemplateId] = useState('');
     const [isMailing, setIsMailing] = useState(false);
     const [isSavingFY, setIsSavingFY] = useState(false);
     const [alertConfig, setAlertConfig] = useState(null);
@@ -33,30 +40,29 @@ const AdminDashboard = () => {
         maxParents: 4,
         spousePremium: 0,
         childPremium: 0,
-        parentPremium: 0,
-        allowSpouse: true,
-        allowChildren: true,
-        allowParents: true,
         requireDocuments: false,
-        enabled: true,
-        policies: [
-            { id: '1.5 Lakhs', label: '1.5 Lakhs', premium: 4500 },
-            { id: '5 Lakhs', label: '5 Lakhs', premium: 8500 }
-        ]
+        enabled: false,
+        policies: []
     });
 
-    const [tempPolicy, setTempPolicy] = useState({ label: '', premium: '' });
+    const [tempPolicy, setTempPolicy] = useState({
+        id: null, label: '', premium: '',
+        maxChildren: 2, maxParents: 4,
+        allowSpouse: false, allowChildren: false, allowParents: false, spousePremium: '', childPremium: '', parentPremium: ''
+    });
 
     const fetchData = useCallback(async () => {
         try {
-            const [yRes, sRes, fRes] = await Promise.all([
+            const [yRes, sRes, fRes, tRes] = await Promise.all([
                 api.get('/financialYears'),
                 api.get('/claims'),
-                api.get('/users/faculty')
+                api.get('/users/faculty'),
+                api.get('/mail/templates').catch(() => ({ data: [] }))
             ]);
             setYears(yRes.data);
             setSubmissions(sRes.data);
             setFaculty(fRes.data);
+            setTemplates(tRes.data);
         } catch (err) {
             console.error("Error fetching admin data:", err);
         }
@@ -90,13 +96,80 @@ const AdminDashboard = () => {
         if (!tempPolicy.label || !tempPolicy.premium) return;
         setNewFY({
             ...newFY,
-            policies: [...newFY.policies, { id: 'p' + Date.now(), label: tempPolicy.label, premium: Number(tempPolicy.premium) }]
+            policies: [...newFY.policies, {
+                id: tempPolicy.id || ('p' + Date.now()),
+                label: tempPolicy.label,
+                premium: Number(tempPolicy.premium),
+                maxChildren: Number(tempPolicy.maxChildren),
+                maxParents: Number(tempPolicy.maxParents),
+                allowSpouse: tempPolicy.allowSpouse,
+                allowChildren: tempPolicy.allowChildren,
+                allowParents: tempPolicy.allowParents,
+                spousePremium: tempPolicy.spousePremium === '' ? 0 : Number(tempPolicy.spousePremium),
+                childPremium: tempPolicy.childPremium === '' ? 0 : Number(tempPolicy.childPremium),
+                parentPremium: tempPolicy.parentPremium === '' ? 0 : Number(tempPolicy.parentPremium),
+            }]
         });
-        setTempPolicy({ label: '', premium: '' });
+        setTempPolicy({
+            id: null, label: '', premium: '', maxChildren: 2, maxParents: 4, allowSpouse: false, allowChildren: false, allowParents: false, spousePremium: '', childPremium: '', parentPremium: ''
+        });
+    };
+
+    const editPolicy = (id) => {
+        const planToEdit = newFY.policies.find(p => p.id === id);
+        if (!planToEdit) return;
+        setTempPolicy({
+            id: planToEdit.id,
+            label: planToEdit.label,
+            premium: planToEdit.premium,
+            maxChildren: planToEdit.maxChildren,
+            maxParents: planToEdit.maxParents,
+            allowSpouse: planToEdit.allowSpouse,
+            allowChildren: planToEdit.allowChildren,
+            allowParents: planToEdit.allowParents,
+            spousePremium: planToEdit.spousePremium,
+            childPremium: planToEdit.childPremium,
+            parentPremium: planToEdit.parentPremium
+        });
+        setNewFY({ ...newFY, policies: newFY.policies.filter(p => p.id !== id) });
     };
 
     const removePolicy = (id) => {
         setNewFY({ ...newFY, policies: newFY.policies.filter(p => p.id !== id) });
+    };
+
+    const saveCustomTemplate = async () => {
+        if (!newTemplate.name || !newTemplate.subject || !newTemplate.html) return alert('All fields required');
+        try {
+            await api.post('/mail/templates', newTemplate);
+            setNewTemplate({ name: '', subject: '', html: '' });
+            fetchData();
+            setAlertConfig({ title: 'SAVED', text: 'Template saved successfully.' });
+        } catch (err) {
+            setAlertConfig({ title: 'ERROR', type: 'danger', text: err.response?.data?.msg || 'Failed to save template.' });
+        }
+    };
+    const deleteCustomTemplate = async (tId) => {
+        if (!confirm('Delete this template permanently?')) return;
+        try {
+            await api.delete(`/mail/templates/${tId}`);
+            fetchData();
+        } catch (e) { }
+    };
+    const dispatchCustomMails = async () => {
+        if (!selectedTemplateId) return alert('Please select a template to send.');
+        if (!selectedFyForMail) return;
+        setIsMailing(true);
+        try {
+            const res = await api.post('/mail/dispatch-custom', {
+                fyId: selectedFyForMail._id || selectedFyForMail.id,
+                templateId: selectedTemplateId
+            });
+            setShowTemplateModal(false);
+            setTimeout(() => setAlertConfig({ title: 'EMAILS DISPATCHED', text: res.data.message }), 500);
+        } catch (err) {
+            setAlertConfig({ title: 'ERROR', type: 'danger', text: 'Failed to dispatch custom emails.' });
+        } finally { setIsMailing(false); }
     };
 
     const saveFY = async () => {
@@ -112,8 +185,8 @@ const AdminDashboard = () => {
             setEditingFYId(null);
             fetchData();
             setAlertConfig({ title: 'SUCCESS', text: `Session ${newFY.name} has been ${editingFYId ? 'updated' : 'initialized'}.` });
-        } catch (err) { 
-            console.error(err); 
+        } catch (err) {
+            console.error(err);
             setAlertConfig({ title: 'ERROR', text: err.response?.data?.msg || "Failed to save session configuration." });
         }
         finally { setIsSavingFY(false); }
@@ -131,15 +204,15 @@ const AdminDashboard = () => {
         }
 
         setEditingFYId(null);
-        const lastYear = `${new Date().getFullYear()}-${new Date().getFullYear()+1}`;
+        const lastYear = `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
         const parts = lastYear.split('-').map(Number);
-        const suggestedName = parts.length === 2 ? `${parts[0]+1}-${parts[1]+1}` : lastYear;
+        const suggestedName = parts.length === 2 ? `${parts[0] + 1}-${parts[1] + 1}` : lastYear;
 
-        setNewFY({ 
-            name: suggestedName, 
+        setNewFY({
+            name: suggestedName,
             lastSubmissionDate: '',
-            maxChildren: 2, 
-            maxParents: 4, 
+            maxChildren: 2,
+            maxParents: 4,
             allowSpouse: true,
             allowChildren: true,
             allowParents: true,
@@ -147,19 +220,19 @@ const AdminDashboard = () => {
             childPremium: 0,
             parentPremium: 0,
             requireDocuments: false,
-            enabled: true, 
-            policies: [{ id: '1.5 Lakhs', label: '1.5 Lakhs', premium: 4500 }, { id: '5 Lakhs', label: '5 Lakhs', premium: 8500 }] 
+            enabled: false,
+            policies: []
         });
         setShowFYModal(true);
     };
 
     const openEdit = (fy) => {
         setEditingFYId(fy._id || fy.id);
-        setNewFY({ 
-            name: fy.name, 
+        setNewFY({
+            name: fy.name,
             lastSubmissionDate: fy.lastSubmissionDate || '',
-            maxChildren: fy.maxChildren || 2, 
-            maxParents: fy.maxParents || 4, 
+            maxChildren: fy.maxChildren || 2,
+            maxParents: fy.maxParents || 4,
             allowSpouse: fy.allowSpouse !== undefined ? fy.allowSpouse : true,
             allowChildren: fy.allowChildren !== undefined ? fy.allowChildren : true,
             allowParents: fy.allowParents !== undefined ? fy.allowParents : true,
@@ -167,8 +240,8 @@ const AdminDashboard = () => {
             childPremium: fy.childPremium || 0,
             parentPremium: fy.parentPremium || 0,
             requireDocuments: fy.requireDocuments || false,
-            enabled: fy.enabled, 
-            policies: fy.policies || [] 
+            enabled: fy.enabled,
+            policies: fy.policies || []
         });
         setShowFYModal(true);
     };
@@ -184,7 +257,7 @@ const AdminDashboard = () => {
     };
 
     const deleteFY = async (id) => {
-        try { 
+        try {
             await api.delete(`/financialYears/${id}`);
             fetchData();
         } catch {
@@ -206,8 +279,8 @@ const AdminDashboard = () => {
             });
         try {
             const res = await api.post('/users/bulk-register', { rows });
-            setAlertConfig({ 
-                title: 'REGISTRATION SUMMARY', 
+            setAlertConfig({
+                title: 'REGISTRATION SUMMARY',
                 text: res.data.message
             });
             setBulkData("");
@@ -289,7 +362,7 @@ const AdminDashboard = () => {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `Mediclaim_${targetFyName}_${new Date().toISOString().slice(0,10)}.csv`;
+        a.download = `Mediclaim_${targetFyName}_${new Date().toISOString().slice(0, 10)}.csv`;
         a.click();
         window.URL.revokeObjectURL(url);
     };
@@ -391,10 +464,10 @@ const AdminDashboard = () => {
     const groupedSubmissions = years.map(fy => {
         const fyId = fy._id || fy.id;
         const fySubs = registryRows.filter(r => r.fyId === fyId || (r.rowType === 'account' && !r.fyId)); // Non-enrolled users are global or attached to active if we want
-        
+
         // Actually, let's only group SUBMISSIONS here
         const actualSubs = registryRows.filter(r => r.rowType === 'submission' && r.fyId === fyId);
-        
+
         return {
             ...fy,
             claims: actualSubs
@@ -409,9 +482,9 @@ const AdminDashboard = () => {
     const dispatchEmails = async () => {
         setIsMailing(true);
         try {
-            await api.post('/mail/dispatch-confirmations', { 
+            await api.post('/mail/dispatch-confirmations', {
                 fyId: activeFY?.id || activeFY?._id,
-                claimIds: selectedIds 
+                claimIds: selectedIds
             });
             alert(`Emails have been dispatched to ${selectedIds.length} faculty members.`);
             setShowMailModal(false);
@@ -436,10 +509,10 @@ const AdminDashboard = () => {
     };
 
     return (
-        <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
-            <header style={{ marginBottom: '3rem', borderLeft: '12px solid var(--primary)', paddingLeft: '2rem' }}>
-                <h1 style={{ fontSize: 'clamp(2rem, 8vw, 3rem)', fontWeight: 900 }}>Administrator Portal</h1>
-                <p style={{ color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.9rem' }}>System Management & Enrollment Records</p>
+        <div style={{ maxWidth: '1600px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+            <header style={{ marginBottom: '1.5rem' }}>
+                <h1 style={{ fontSize: 'clamp(1.5rem, 5vw, 2.22rem)', fontWeight: 900 }}>Administrator Portal</h1>
+                <p style={{ color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.8rem' }}>System Management & Enrollment Records</p>
             </header>
 
             {alertConfig && (
@@ -470,50 +543,42 @@ const AdminDashboard = () => {
             )}
             {activeTab === 'years' && (
                 <div style={{ display: 'grid', gap: '2.5rem' }}>
-                    <div className="glass-panel" style={{ padding: 'clamp(1.5rem, 5vw, 3.5rem)', borderLeft: '12px solid var(--primary)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '2rem' }}>
-                            <div>
-                                <h1 style={{ fontSize: 'clamp(1.8rem, 6vw, 3rem)', fontWeight: 900, lineHeight: 1.1, letterSpacing: '-1px' }}>System <span style={{ color: 'var(--primary)' }}>Control Panel</span></h1>
-                                <p style={{ color: 'var(--text-muted)', fontWeight: 700, marginTop: '0.8rem', fontSize: 'clamp(0.9rem, 2vw, 1.1rem)' }}>Manage medical policy windows and institutional participation across all departments.</p>
+                    <div className="glass-panel" style={{ padding: 'clamp(1rem, 3vw, 2.2rem)', width: '100%' }}>
+                        <div className="responsive-auto-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(clamp(120px, 30vw, 160px), 1fr))', gap: '0.75rem' }}>
+                            <div className="stat-card-premium hover-blue" style={{ background: 'var(--bg-card)', padding: '0.5rem 0.75rem', border: 'var(--border)' }}>
+                                <div className="stat-val" style={{ fontSize: '18px', fontWeight: 900, color: '#2563eb' }}>{faculty.length}</div>
+                                <div className="stat-lab" style={{ fontSize: '10px', fontWeight: 900, color: '#2563eb', letterSpacing: '0.05em' }}>TOTAL FACULTY</div>
                             </div>
-                            <button className="btn btn-primary" onClick={openCreate} style={{ padding: '1.2rem 2.5rem', fontSize: '1rem', fontWeight: 900, boxShadow: '0 15px 30px -10px var(--primary-glow)' }}>
-                                <Plus size={22} /> CREATE FINANCIAL YEAR
-                            </button>
-                        </div>
-
-                        {years.some(y => y.enabled) && (
-                            <div className="glass-panel" style={{ marginTop: '1.5rem', padding: '1.2rem', borderLeft: '8px solid #f59e0b', background: 'rgba(245,158,11,0.08)', fontWeight: 800, fontSize: '0.85rem', color: '#f59e0b' }}>
-                                <AlertTriangle size={18} style={{ marginRight: '10px', verticalAlign: 'middle' }} />
-                                An active cycle is authorized. Disable it before creating a new session.
+                            <div className="stat-card-premium hover-green" style={{ background: 'var(--bg-card)', padding: '0.5rem 0.75rem', border: 'var(--border)' }}>
+                                <div className="stat-val" style={{ fontSize: '18px', fontWeight: 900, color: '#10b981' }}>{submissions.filter(s => !s.archived && s.fyId === (activeFY?._id || activeFY?.id)).length}</div>
+                                <div className="stat-lab" style={{ fontSize: '10px', fontWeight: 900, color: '#10b981', letterSpacing: '0.05em' }}>ENROLLED</div>
                             </div>
-                        )}
-
-                        <div className="responsive-auto-grid" style={{ marginTop: '2rem', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem' }}>
-                            <div className="stat-card-premium" style={{ borderLeft: '4px solid var(--primary)', padding: '1rem' }}>
-                                <div className="stat-icon" style={{ opacity: 0.05, transform: 'scale(2.5)' }}><Users size={20} /></div>
-                                <div className="stat-val" style={{ fontSize: '1.8rem', marginBottom: '0.2rem' }}>{faculty.length}</div>
-                                <div className="stat-lab" style={{ fontSize: '0.65rem' }}>TOTAL FACULTY</div>
-                            </div>
-                            <div className="stat-card-premium" style={{ borderLeft: '4px solid #22c55e', padding: '1rem' }}>
-                                <div className="stat-icon" style={{ opacity: 0.05, transform: 'scale(2.5)' }}><CheckCircle size={20} /></div>
-                                <div className="stat-val" style={{ fontSize: '1.8rem', marginBottom: '0.2rem' }}>{submissions.filter(s => !s.archived && s.fyId === (activeFY?._id || activeFY?.id)).length}</div>
-                                <div className="stat-lab" style={{ fontSize: '0.65rem' }}>ENROLLED</div>
-                            </div>
-                            <div className="stat-card-premium" style={{ borderLeft: '4px solid #f59e0b', padding: '1rem' }}>
-                                <div className="stat-icon" style={{ opacity: 0.05, transform: 'scale(2.5)' }}><Clock size={20} /></div>
-                                <div className="stat-val" style={{ fontSize: '1.8rem', marginBottom: '0.2rem' }}>
+                            <div className="stat-card-premium hover-amber" style={{ background: 'var(--bg-card)', padding: '0.5rem 0.75rem', border: 'var(--border)' }}>
+                                <div className="stat-val" style={{ fontSize: '18px', fontWeight: 900, color: '#f59e0b' }}>
                                     {Math.max(0, faculty.filter(f => f.status !== 'disabled').length - submissions.filter(s => !s.archived && s.fyId === (activeFY?._id || activeFY?.id)).length)}
                                 </div>
-                                <div className="stat-lab" style={{ fontSize: '0.65rem' }}>AWAITING</div>
+                                <div className="stat-lab" style={{ fontSize: '10px', fontWeight: 900, color: '#f59e0b', letterSpacing: '0.05em' }}>AWAITING</div>
                             </div>
                         </div>
                     </div>
 
-                    <div className="glass-panel" style={{ padding: 'clamp(1.5rem, 5vw, 3.5rem)' }}>
-                        <h2 style={{ fontWeight: 900, fontSize: 'clamp(1.2rem, 4vw, 1.8rem)', marginBottom: '2.5rem', display: 'flex', alignItems: 'center', gap: '15px' }}>
-                            <Settings size={28} color="var(--primary)" /> Active Enrollment Cycles
-                        </h2>
-                        
+                    <div className="glass-panel" style={{ padding: 'clamp(0.75rem, 1.5vw, 1.25rem)', width: '100%' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+                            <h2 style={{ fontWeight: 900, fontSize: 'clamp(1.1rem, 2.5vw, 1.4rem)', display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
+                                <Settings size={22} color="var(--primary)" /> Active Enrollment Cycles
+                            </h2>
+                            <button className="btn btn-primary" onClick={openCreate} style={{ padding: '0.6rem 1rem', fontSize: '12px', fontWeight: 900, boxShadow: '0 8px 20px -5px var(--primary-glow)' }}>
+                                <Plus size={16} /> INITIALIZE SESSION
+                            </button>
+                        </div>
+
+                        {years.some(y => y.enabled) && (
+                            <div className="glass-panel" style={{ marginBottom: '1.25rem', padding: '0.75rem 1.2rem', background: 'rgba(245,158,11,0.08)', fontWeight: 800, fontSize: '13px', color: '#f59e0b', border: '0.5px solid rgba(245,158,11,0.2)' }}>
+                                <AlertTriangle size={15} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                                An active cycle is authorized. Disable it before creating a new session.
+                            </div>
+                        )}
+
                         <div className="table-responsive-premium mobile-hide">
                             <table className="data-table-premium">
                                 <thead>
@@ -527,7 +592,7 @@ const AdminDashboard = () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {years.sort((a,b) => b.name.localeCompare(a.name)).map(y => (
+                                    {years.sort((a, b) => b.name.localeCompare(a.name)).map(y => (
                                         <tr key={y._id || y.id} style={{ opacity: y.enabled ? 1 : 0.6, transition: 'all 0.3s ease' }}>
                                             <td style={{ fontWeight: 900, fontSize: '1.1rem', letterSpacing: '1px', whiteSpace: 'nowrap', width: '150px' }}>FY {y.name}</td>
                                             <td>
@@ -540,7 +605,7 @@ const AdminDashboard = () => {
                                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', minHeight: '40px', alignItems: 'center' }}>
                                                     {y.policies?.map(p => (
                                                         <div key={p.id} style={{ fontSize: '0.6rem', fontWeight: 900, background: 'rgba(255,255,255,0.03)', padding: '0.3rem 0.6rem', border: '1px solid var(--border-glass)', borderRadius: '4px', whiteSpace: 'nowrap' }}>
-                                                            {p.label} (₹{p.premium/1000}K)
+                                                            {p.label} (₹{p.premium / 1000}K)
                                                         </div>
                                                     ))}
                                                 </div>
@@ -570,10 +635,9 @@ const AdminDashboard = () => {
                                             <td>
                                                 <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', height: '40px' }}>
                                                     <button className="btn btn-ghost" style={{ height: '36px', width: '36px', padding: 0, background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid #f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => openEdit(y)}><Edit size={16} /></button>
-                                                    <label className="inst-switch" style={{ transform: 'scale(0.8)' }}>
-                                                        <input type="checkbox" checked={y.enabled} onChange={() => toggleYear(y._id || y.id, y.enabled)} />
-                                                        <span className="inst-slider"></span>
-                                                    </label>
+                                                    <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '36px', fontSize: '0.75rem', fontWeight: 900, background: y.enabled ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)', color: y.enabled ? '#ef4444' : '#22c55e', border: '1px solid currentColor' }} onClick={() => toggleYear(y._id || y.id, y.enabled)}>
+                                                        {y.enabled ? 'DISABLE' : 'ENABLE'}
+                                                    </button>
                                                     <button className="btn btn-ghost" style={{ height: '36px', width: '36px', padding: 0, color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => {
                                                         setAlertConfig({
                                                             title: 'HARD_DELETE',
@@ -590,12 +654,12 @@ const AdminDashboard = () => {
                             </table>
                         </div>
 
-                        <div className="mobile-only" style={{ display: 'none', flexDirection: 'column', gap: '1.5rem' }}>
-                            {years.sort((a,b) => b.name.localeCompare(a.name)).map(y => {
+                        <div className="mobile-only" style={{ flexDirection: 'column', gap: '1.5rem' }}>
+                            {years.sort((a, b) => b.name.localeCompare(a.name)).map(y => {
                                 const cycleId = y._id || y.id;
                                 const count = submissions.filter(s => !s.archived && s.fyId === cycleId).length;
                                 return (
-                                    <div key={cycleId} className="glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem', borderLeft: `6px solid ${y.enabled ? '#22c55e' : '#ef4444'}` }}>
+                                    <div key={cycleId} className="glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <div style={{ fontWeight: 900, fontSize: '1.2rem' }}>FY {y.name}</div>
                                             <div style={{ fontSize: '0.6rem', fontWeight: 900, padding: '0.3rem 0.6rem', background: y.enabled ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: y.enabled ? '#22c55e' : '#ef4444', border: '1px solid currentColor' }}>
@@ -609,16 +673,22 @@ const AdminDashboard = () => {
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid var(--border-glass)', gap: '1rem' }}>
                                             <button className="btn btn-ghost" style={{ flex: 1, minHeight: '45px', fontSize: '0.85rem', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '0.5rem' }} onClick={() => exportCSV(cycleId, y.name)}>
-                                                <Download size={18} style={{ flexShrink: 0 }} /> 
+                                                <Download size={18} style={{ flexShrink: 0 }} />
                                                 <span style={{ fontWeight: 900, whiteSpace: 'nowrap' }}>{count} RECORDS</span>
                                             </button>
                                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
-                                                <label className="inst-switch" style={{ transform: 'scale(0.8)', flexShrink: 0, margin: 0 }}>
-                                                    <input type="checkbox" checked={y.enabled} onChange={() => toggleYear(y._id || y.id, y.enabled)} />
-                                                    <span className="inst-slider"></span>
-                                                </label>
+                                                <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '44px', fontSize: '0.75rem', fontWeight: 900, background: y.enabled ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)', color: y.enabled ? '#ef4444' : '#22c55e', border: '1px solid currentColor', flexShrink: 0 }} onClick={() => toggleYear(y._id || y.id, y.enabled)}>
+                                                    {y.enabled ? 'DISABLE' : 'ENABLE'}
+                                                </button>
                                                 <button className="btn btn-ghost" style={{ width: '44px', height: '44px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }} onClick={() => openEdit(y)}><Edit size={20} style={{ flexShrink: 0 }} /></button>
-                                                <button className="btn btn-ghost" style={{ width: '44px', height: '44px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', flexShrink: 0 }} onClick={() => deleteFY(cycleId)}><Trash2 size={20} style={{ flexShrink: 0 }} /></button>
+                                                <button className="btn btn-ghost" style={{ width: '44px', height: '44px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', flexShrink: 0 }} onClick={() => {
+                                                    setAlertConfig({
+                                                        title: 'HARD_DELETE',
+                                                        type: 'danger',
+                                                        text: `Permanently destroy session ${y.name}? THIS CANNOT BE UNDONE.`,
+                                                        onConfirm: () => deleteFY(y._id || y.id)
+                                                    });
+                                                }}><Trash2 size={20} style={{ flexShrink: 0 }} /></button>
                                             </div>
                                         </div>
                                     </div>
@@ -631,7 +701,7 @@ const AdminDashboard = () => {
 
             {activeTab === 'registry' && (
                 <div className="glass-panel" style={{ padding: 'clamp(1rem, 5vw, 2.5rem)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3rem', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                         <div style={{ flex: 1, minWidth: '300px', position: 'relative' }}>
                             <div style={{ position: 'relative' }}>
                                 <Search size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
@@ -639,21 +709,14 @@ const AdminDashboard = () => {
                             </div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', width: '100%' }}>
-                            <button 
-                                className="btn btn-ghost"
-                                style={{ padding: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', border: '1px solid var(--primary)', color: 'var(--primary)', fontWeight: 900, fontSize: '0.75rem', whiteSpace: 'nowrap' }}
-                                onClick={() => setShowMailModal(true)}
-                            >
-                                <Mail size={18} /> SEND BULK EMAIL
-                            </button>
 
-                            <button 
-                                className="btn btn-primary" 
-                                style={{ 
-                                    padding: '1.2rem', 
-                                    display: 'flex', 
-                                    justifyContent: 'center', 
-                                    alignItems: 'center', 
+                            <button
+                                className="btn btn-primary"
+                                style={{
+                                    padding: '1.2rem',
+                                    display: 'flex',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
                                     gap: '12px',
                                     background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
                                     border: '1px solid rgba(255,255,255,0.1)',
@@ -681,13 +744,13 @@ const AdminDashboard = () => {
                             return (new Date(b.createdAt) || 0) - (new Date(a.createdAt) || 0);
                         }).map(fy => (
                             <div key={fy._id || fy.id} className="folder-container">
-                                <div 
-                                    className="folder-header glass-panel" 
-                                    style={{ 
-                                        padding: 'clamp(1rem, 4vw, 2rem)', 
-                                        display: 'flex', 
-                                        justifyContent: 'space-between', 
-                                        alignItems: 'center', 
+                                <div
+                                    className="folder-header glass-panel"
+                                    style={{
+                                        padding: 'clamp(1rem, 4vw, 2rem)',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
                                         cursor: 'pointer',
                                         background: expandedFolders[fy._id] ? 'rgba(99, 102, 241, 0.1)' : 'var(--bg-glass)',
                                         border: expandedFolders[fy._id] ? '1px solid var(--primary)' : '1px solid var(--border-glass)',
@@ -702,7 +765,7 @@ const AdminDashboard = () => {
                                         <div>
                                             <div style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--primary)', letterSpacing: '1px', marginBottom: '4px' }}>FINANCIAL CYCLE</div>
                                             <div style={{ fontSize: 'clamp(1.1rem, 5vw, 1.3rem)', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                                {fy.name} 
+                                                {fy.name}
                                                 {fy.enabled && <span style={{ fontSize: '0.6rem', padding: '0.2rem 0.5rem', background: '#22c55e', color: 'white', fontWeight: 900, borderRadius: '4px' }}>ACTIVE</span>}
                                             </div>
                                         </div>
@@ -713,6 +776,9 @@ const AdminDashboard = () => {
                                             <div style={{ fontWeight: 900, fontSize: '0.85rem' }}>{fy.claims.length} SUBMISSIONS</div>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                                            <button className="btn btn-ghost" style={{ width: '40px', height: '40px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--primary)', color: 'var(--primary)', background: 'rgba(59, 130, 246, 0.1)' }} onClick={(e) => { e.stopPropagation(); setSelectedFyForMail(fy); setShowTemplateModal(true); }} title="Send template emails to this cycle">
+                                                <Mail size={16} />
+                                            </button>
                                             <button className="btn btn-ghost" style={{ width: '40px', height: '40px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border-glass)' }} onClick={(e) => { e.stopPropagation(); exportCSV(fy._id, fy.name); }} title="Export this cycle">
                                                 <Download size={18} />
                                             </button>
@@ -723,138 +789,163 @@ const AdminDashboard = () => {
 
                                 {expandedFolders[fy._id] && (
                                     <div className="folder-content animate-slideDown" style={{ padding: '1rem 0 0 0' }}>
-                                        <div className="table-responsive-premium mobile-hide" style={{ border: 'none', background: 'transparent' }}>
-                                            <table className="data-table-premium">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Faculty Member</th>
-                                                        <th>ID / Bio</th>
-                                                        <th>Dept / Designation</th>
-                                                        <th>Coverage Config</th>
-                                                        <th style={{ textAlign: 'center' }}>Total Premium</th>
-                                                        <th style={{ textAlign: 'center' }}>Actions</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {fy.claims.length === 0 ? (
+                                        <>
+                                            <div className="table-responsive-premium mobile-hide" style={{ border: 'none', background: 'transparent' }}>
+                                                <table className="data-table-premium">
+                                                    <thead>
                                                         <tr>
-                                                            <td colSpan="6" style={{ textAlign: 'center', padding: '3rem', opacity: 0.5, fontWeight: 900 }}>NO ENROLLMENTS FOUND FOR THIS CYCLE</td>
+                                                            <th>Faculty Member</th>
+                                                            <th>ID / Bio</th>
+                                                            <th>Dept / Designation</th>
+                                                            <th>Coverage Config</th>
+                                                            <th style={{ textAlign: 'center' }}>Total Premium</th>
+                                                            <th style={{ textAlign: 'center' }}>Actions</th>
                                                         </tr>
-                                                    ) : (
-                                                        fy.claims.map(s => (
-                                                            <tr key={s._id || s.id}>
-                                                                <td style={{ fontWeight: 800 }}>
-                                                                    {s.userName}
-                                                                    <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 900, textTransform: 'uppercase', marginTop: '4px' }}>{s.email}</div>
-                                                                </td>
-                                                                <td>
-                                                                    <div style={{ fontWeight: 900, letterSpacing: '0.5px' }}>{s.empId || 'ID_PENDING'}</div>
-                                                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>{s.gender || 'N/A'} | DOJ: {s.doj || 'N/A'}</div>
-                                                                </td>
-                                                                <td>
-                                                                    <div style={{ fontWeight: 900, fontSize: '0.85rem' }}>{s.department || 'NO_DEPT'}</div>
-                                                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>{s.designation || 'FACULTY'}</div>
-                                                                </td>
-                                                                <td>
-                                                                    <div style={{ fontWeight: 900, color: 'var(--text-main)' }}>{s.coverageId}</div>
-                                                                    <div style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 800 }}>
-                                                                        {`+${(s.dependents?.length || 0)} DEPENDENTS`}
-                                                                    </div>
-                                                                </td>
-                                                                <td style={{ fontWeight: 900, color: 'var(--primary)', fontSize: '1.2rem', textAlign: 'center' }}>₹{s.premium?.toLocaleString()}</td>
-                                                                <td style={{ textAlign: 'center' }}>
-                                                                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-                                                                        <button
-                                                                            className="btn btn-ghost"
-                                                                            style={{ padding: '0.4rem 0.8rem', fontSize: '0.65rem', fontWeight: 900, color: 'var(--primary)', border: '1px solid var(--primary)30' }}
-                                                                            title="Send confirmation email"
-                                                                            onClick={() => sendSingleConfirmation(s)}
-                                                                        >
-                                                                            <Mail size={14} />
-                                                                        </button>
-                                                                        <button
-                                                                            className="btn btn-ghost"
-                                                                            style={{ padding: '0.4rem 0.8rem', color: '#ef4444', border: '1px solid #ef444430' }}
-                                                                            title="Delete enrollment record"
-                                                                            onClick={() => setAlertConfig({
-                                                                                title: 'DELETE RECORD',
-                                                                                type: 'danger',
-                                                                                text: `Delete enrollment record for ${s.userName}? This cannot be undone.`,
-                                                                                onConfirm: () => deleteRecord(s._id || s.id)
-                                                                            })}
-                                                                        >
-                                                                            <Trash2 size={14} />
-                                                                        </button>
-                                                                    </div>
-                                                                </td>
+                                                    </thead>
+                                                    <tbody>
+                                                        {fy.claims.length === 0 ? (
+                                                            <tr>
+                                                                <td colSpan="6" style={{ textAlign: 'center', padding: '3rem', opacity: 0.5, fontWeight: 900 }}>NO ENROLLMENTS FOUND FOR THIS CYCLE</td>
                                                             </tr>
-                                                        ))
-                                                    )}
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                                        ) : (
+                                                            fy.claims.map(s => (
+                                                                <tr key={s._id || s.id}>
+                                                                    <td style={{ fontWeight: 800 }}>
+                                                                        {s.userName}
+                                                                        <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 900, textTransform: 'uppercase', marginTop: '4px' }}>{s.email}</div>
+                                                                    </td>
+                                                                    <td>
+                                                                        <div style={{ fontWeight: 900, letterSpacing: '0.5px' }}>{s.empId || 'ID_PENDING'}</div>
+                                                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>{s.gender || 'N/A'} | DOJ: {s.doj || 'N/A'}</div>
+                                                                    </td>
+                                                                    <td>
+                                                                        <div style={{ fontWeight: 900, fontSize: '0.85rem' }}>{s.department || 'NO_DEPT'}</div>
+                                                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>{s.designation || 'FACULTY'}</div>
+                                                                    </td>
+                                                                    <td>
+                                                                        <div style={{ fontWeight: 900, color: 'var(--text-main)' }}>{s.coverageId}</div>
+                                                                        <div style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 800 }}>
+                                                                            {`+${(s.dependents?.length || 0)} DEPENDENTS`}
+                                                                        </div>
+                                                                    </td>
+                                                                    <td style={{ fontWeight: 900, color: 'var(--primary)', fontSize: '1.2rem', textAlign: 'center' }}>₹{s.premium?.toLocaleString()}</td>
+                                                                    <td style={{ textAlign: 'center' }}>
+                                                                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                                                                            <button
+                                                                                className="btn btn-ghost"
+                                                                                style={{ padding: '0.4rem 0.8rem', fontSize: '0.65rem', fontWeight: 900, color: 'var(--primary)', border: '1px solid var(--primary)30' }}
+                                                                                title="Send confirmation email"
+                                                                                onClick={() => sendSingleConfirmation(s)}
+                                                                            >
+                                                                                <Mail size={14} />
+                                                                            </button>
+                                                                            <button
+                                                                                className="btn btn-ghost"
+                                                                                style={{ padding: '0.4rem 0.8rem', color: '#ef4444', border: '1px solid #ef444430' }}
+                                                                                title="Delete enrollment record"
+                                                                                onClick={() => setAlertConfig({
+                                                                                    title: 'DELETE RECORD',
+                                                                                    type: 'danger',
+                                                                                    text: `Delete enrollment record for ${s.userName}? This cannot be undone.`,
+                                                                                    onConfirm: () => deleteRecord(s._id || s.id)
+                                                                                })}
+                                                                            >
+                                                                                <Trash2 size={14} />
+                                                                            </button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            ))
+                                                        )}
+                                                    </tbody>
+                                                </table>
+                                            </div>
 
-                                        <div className="mobile-only" style={{ display: 'none', flexDirection: 'column', gap: '1rem', padding: '0 1rem' }}>
-                                            {fy.claims.map(s => (
-                                                <div key={s._id} className="glass-panel" style={{ padding: '1.2rem' }}>
-                                                    <div style={{ fontWeight: 900 }}>{s.userName}</div>
-                                                    <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>{s.coverageId} (+{s.dependents?.length} Dept)</div>
-                                                    <div style={{ marginTop: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                        <div style={{ fontWeight: 900, color: 'var(--primary)' }}>₹{s.premium?.toLocaleString()}</div>
-                                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                            <button className="btn btn-ghost" style={{ padding: '0.4rem' }} onClick={() => sendSingleConfirmation(s)}><Mail size={14} /></button>
-                                                            <button className="btn btn-ghost" style={{ padding: '0.4rem', color: '#ef4444' }} onClick={() => deleteRecord(s._id || s.id)}><Trash2 size={14} /></button>
+                                            <div className="mobile-only" style={{ display: 'none', flexDirection: 'column', gap: '1rem', padding: '0 1rem' }}>
+                                                {fy.claims.map(s => (
+                                                    <div key={s._id} className="glass-panel" style={{ padding: '1.2rem' }}>
+                                                        <div style={{ fontWeight: 900 }}>{s.userName}</div>
+                                                        <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>{s.coverageId} (+{s.dependents?.length} Dept)</div>
+                                                        <div style={{ marginTop: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <div style={{ fontWeight: 900, color: 'var(--primary)' }}>₹{s.premium?.toLocaleString()}</div>
+                                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                                <button className="btn btn-ghost" style={{ padding: '0.4rem' }} onClick={() => sendSingleConfirmation(s)}><Mail size={14} /></button>
+                                                                <button className="btn btn-ghost" style={{ padding: '0.4rem', color: '#ef4444' }} onClick={() => setAlertConfig({
+                                                                    title: 'DELETE RECORD',
+                                                                    type: 'danger',
+                                                                    text: `Delete enrollment record for ${s.userName}? This cannot be undone.`,
+                                                                    onConfirm: () => deleteRecord(s._id || s.id)
+                                                                })}><Trash2 size={14} /></button>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            ))}
-                                        </div>
+                                                ))}
+                                            </div>
+
+                                            {(() => {
+                                                const unregQuery = searchTerm?.toLowerCase() || '';
+                                                const unregistered = faculty.filter(f =>
+                                                    f.status !== 'disabled' &&
+                                                    !fy.claims.some(c => c.email === f.email) &&
+                                                    (!unregQuery ||
+                                                        f.name?.toLowerCase().includes(unregQuery) ||
+                                                        f.email?.toLowerCase().includes(unregQuery) ||
+                                                        (f.empId && f.empId.toLowerCase().includes(unregQuery)) ||
+                                                        (f.department && f.department.toLowerCase().includes(unregQuery))
+                                                    )
+                                                );
+                                                if (unregistered.length === 0) return null;
+                                                return (
+                                                    <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
+                                                        <div
+                                                            className="glass-panel"
+                                                            style={{
+                                                                padding: '1rem',
+                                                                display: 'flex',
+                                                                justifyContent: 'space-between',
+                                                                alignItems: 'center',
+                                                                cursor: 'pointer',
+                                                                opacity: 0.8,
+                                                                border: '1px solid var(--border-glass)'
+                                                            }}
+                                                            onClick={() => toggleFolder(`unreg_${fy._id || fy.id}`)}
+                                                        >
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                                                <Users size={16} color="var(--text-muted)" />
+                                                                <div style={{ fontWeight: 900, fontSize: '0.8rem', color: 'var(--text-muted)' }}>UNREGISTERED ACCOUNTS (NOT YET ENROLLED)</div>
+                                                            </div>
+                                                            <ArrowRight size={14} style={{ transform: expandedFolders[`unreg_${fy._id || fy.id}`] ? 'rotate(90deg)' : 'none', transition: 'transform 0.3s ease' }} />
+                                                        </div>
+                                                        {expandedFolders[`unreg_${fy._id || fy.id}`] && (
+                                                            <div className="responsive-auto-grid" style={{ gap: '1rem', marginTop: '1rem' }}>
+                                                                {unregistered.map(r => (
+                                                                    <div key={r._id || r.id} className="glass-panel" style={{ padding: '1.2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--border-glass)' }}>
+                                                                        <div style={{ minWidth: 0 }}>
+                                                                            <div style={{ fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</div>
+                                                                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>{r.email}</div>
+                                                                            <div style={{ fontSize: '0.6rem', color: 'var(--primary)', fontWeight: 900, marginTop: '4px' }}>{r.empId || 'NO_ID'} | {r.department || 'NO_DEPT'}</div>
+                                                                        </div>
+                                                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+                                                                            <div style={{ fontSize: '0.65rem', fontWeight: 900, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '2px 8px', borderRadius: '4px' }}>PENDING</div>
+                                                                            <button className="btn btn-ghost" style={{ padding: '0.3rem 0.6rem', fontSize: '0.6rem', fontWeight: 900, border: '1px solid var(--primary-blue)', color: 'var(--primary-blue)' }} onClick={() => sendSingleConfirmation({ ...r, userName: r.name, isReminder: true })}>
+                                                                                <Send size={10} /> REMIND
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </>
                                     </div>
                                 )}
                             </div>
                         ))}
-
-                        {registryRows.filter(r => r.rowType === 'account').length > 0 && (
-                             <div className="folder-container">
-                                 <div 
-                                    className="folder-header glass-panel" 
-                                    style={{ 
-                                        padding: '1rem 2rem', 
-                                        display: 'flex', 
-                                        justifyContent: 'space-between', 
-                                        alignItems: 'center', 
-                                        cursor: 'pointer',
-                                        opacity: 0.8
-                                    }}
-                                    onClick={() => toggleFolder('unregistered')}
-                                >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                                        <Users size={20} color="var(--text-muted)" />
-                                        <div style={{ fontWeight: 900, fontSize: '0.9rem', color: 'var(--text-muted)' }}>UNREGISTERED ACCOUNTS (NOT YET ENROLLED)</div>
-                                    </div>
-                                    <ArrowRight size={16} style={{ transform: expandedFolders['unregistered'] ? 'rotate(90deg)' : 'none', transition: 'transform 0.3s ease' }} />
-                                </div>
-                                {expandedFolders['unregistered'] && (
-                                    <div className="folder-content" style={{ padding: '1rem' }}>
-                                        <div className="responsive-auto-grid" style={{ gap: '1rem' }}>
-                                            {registryRows.filter(r => r.rowType === 'account').map(r => (
-                                                <div key={r._id} className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                    <div>
-                                                        <div style={{ fontWeight: 900 }}>{r.userName}</div>
-                                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.email}</div>
-                                                    </div>
-                                                    <div style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--primary)' }}>PENDING</div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                             </div>
-                        )}
                     </div>
                 </div>
             )}
-
 
             {activeTab === 'recruit' && (
                 <div className="glass-panel" style={{ padding: 'clamp(1rem, 5vw, 3rem)' }}>
@@ -869,9 +960,6 @@ const AdminDashboard = () => {
                         </div>
                     </div>
                     <textarea className="glass-panel" style={{ width: '100%', minHeight: '150px', padding: '1.5rem', background: 'rgba(0,0,0,0.2)', color: 'white' }} value={bulkData} onChange={e => setBulkData(e.target.value)} placeholder="Format: Name, Department, Email (Password will be set to Email)" />
-                    
-
-                    
 
                     <div style={{ marginTop: '4rem' }}>
                         <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
@@ -888,17 +976,24 @@ const AdminDashboard = () => {
                                         <tr key={f._id || f.id} style={{ opacity: f.status === 'disabled' ? 0.4 : 1 }}>
                                             <td>{f.name}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{f.email}</div></td>
                                             <td>{f.department || 'N/A'}</td>
-                                            <td style={{ textAlign: 'right', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                                                <button 
-                                                    className="btn btn-ghost" 
-                                                    style={{ padding: '0.5rem', color: f.status === 'disabled' ? '#22c55e' : '#f59e0b', border: '1px solid currentColor' }} 
-                                                    onClick={() => toggleFacultyStatus(f._id || f.id, f.status)}
-                                                >
-                                                    {f.status === 'disabled' ? <><Unlock size={16} /> Enable</> : <><Lock size={16} /> Disable</>}
-                                                </button>
-                                                <button className="btn btn-ghost" style={{ padding: '0.5rem', color: '#ef4444', border: '1px solid currentColor' }} onClick={() => deleteFacultyUser(f._id || f.id)}>
-                                                    <Trash2 size={16} /> Delete
-                                                </button>
+                                            <td style={{ textAlign: 'right' }}>
+                                                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                                    <button
+                                                        className="btn btn-ghost"
+                                                        style={{ padding: '0.5rem', color: f.status === 'disabled' ? '#22c55e' : '#f59e0b', border: '1px solid currentColor' }}
+                                                        onClick={() => toggleFacultyStatus(f._id || f.id, f.status)}
+                                                    >
+                                                        {f.status === 'disabled' ? <><Unlock size={16} /> Enable</> : <><Lock size={16} /> Disable</>}
+                                                    </button>
+                                                    <button className="btn btn-ghost" style={{ padding: '0.5rem', color: '#ef4444', border: '1px solid currentColor' }} onClick={() => setAlertConfig({
+                                                        title: 'DELETE FACULTY',
+                                                        type: 'danger',
+                                                        text: `Are you sure you want to permanently delete this faculty account?`,
+                                                        onConfirm: () => deleteFacultyUser(f._id || f.id)
+                                                    })}>
+                                                        <Trash2 size={16} /> Delete
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
@@ -909,10 +1004,9 @@ const AdminDashboard = () => {
                 </div>
             )}
 
-
             {showFYModal && (
                 <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.98)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(30px)' }}>
-                    <div className="glass-panel" style={{ width: '95%', maxWidth: '900px', maxHeight: '90vh', overflowY: 'auto', padding: 'clamp(1rem, 5vw, 3rem)', position: 'relative' }}>
+                    <div className="glass-panel" style={{ width: '95%', maxWidth: '1200px', maxHeight: '90vh', overflowY: 'auto', padding: 'clamp(1rem, 5vw, 3rem)', position: 'relative' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'clamp(1.5rem, 5vw, 3rem)', position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 10, padding: '1rem 0', borderBottom: '1px solid var(--border-glass)' }}>
                             <h2 style={{ fontSize: '1.8rem', fontWeight: 900 }}>{editingFYId ? 'Update Session Settings' : 'Initialize New Cycle'}</h2>
                             <button className="btn btn-ghost" onClick={() => setShowFYModal(false)}><X /></button>
@@ -929,90 +1023,94 @@ const AdminDashboard = () => {
                             </div>
                         </div>
 
-                        {/* PLAN CONFIGURATION */}
-                        <div style={{ marginBottom: '3rem' }}>
-                            <h3 style={{ fontSize: '1.1rem', fontWeight: 900, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}><ShieldCheck size={22} color="var(--primary)" /> Coverage Plans</h3>
-                            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
-                                <input className="glass-panel" style={{ flex: 1, minWidth: '130px', padding: '1rem' }} placeholder="Plan Label (e.g. 5 Lakhs)" value={tempPolicy.label} onChange={e => setTempPolicy({ ...tempPolicy, label: e.target.value })} />
-                                <input type="number" className="glass-panel" style={{ width: '120px', padding: '1rem' }} placeholder="Base Premium" value={tempPolicy.premium} onChange={e => setTempPolicy({ ...tempPolicy, premium: e.target.value })} />
-                                <button className="btn btn-primary" onClick={addPolicyToFY}>ADD PLAN</button>
+                        <div style={{ marginBottom: '3rem', padding: 'clamp(1rem, 4vw, 2.5rem)', background: 'rgba(255,255,255,0.02)', border: '2px solid var(--border-glass)' }}>
+                            <h3 style={{ fontSize: '1.1rem', fontWeight: 900, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}><ShieldCheck size={22} color="var(--primary)" /> Coverage Plans & Dependencies</h3>
+
+                            <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '2rem', border: '1px solid var(--primary-blue)', background: 'var(--bg-surface)' }}>
+                                <h4 style={{ fontWeight: 900, marginBottom: '1rem', color: 'var(--primary)' }}>{tempPolicy.id ? 'Edit Draft Plan' : 'Draft New Plan'}</h4>
+                                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+                                    <input className="glass-panel" style={{ flex: 1, minWidth: '130px', padding: '1rem' }} placeholder="Plan Label (e.g. 5 Lakhs)" value={tempPolicy.label} onChange={e => setTempPolicy({ ...tempPolicy, label: e.target.value })} />
+                                    <input type="number" className="glass-panel" style={{ width: '180px', padding: '1rem' }} placeholder="Base Premium" value={tempPolicy.premium} onChange={e => setTempPolicy({ ...tempPolicy, premium: e.target.value })} />
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1.5rem' }}>
+                                    <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.02)', opacity: tempPolicy.allowSpouse ? 1 : 0.5, transition: 'opacity 0.3s' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: tempPolicy.allowSpouse ? '1.5rem' : 0, alignItems: 'center', transition: 'margin 0.3s' }}>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 900 }}>SPOUSE / PARTNER</span>
+                                            <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '32px', fontSize: '0.65rem', fontWeight: 900, background: tempPolicy.allowSpouse ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: tempPolicy.allowSpouse ? '#22c55e' : '#ef4444', border: '1px solid currentColor', borderRadius: '8px' }} onClick={() => setTempPolicy({ ...tempPolicy, allowSpouse: !tempPolicy.allowSpouse })}>
+                                                {tempPolicy.allowSpouse ? 'ENABLED' : 'DISABLED'}
+                                            </button>
+                                        </div>
+                                        {tempPolicy.allowSpouse && (
+                                            <div className="f-group animate-pop">
+                                                <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6 }}>SPOUSE PREMIUM</label>
+                                                <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={tempPolicy.spousePremium} onChange={e => { const val = e.target.value; setTempPolicy({ ...tempPolicy, spousePremium: val, childPremium: val }); }} disabled={!tempPolicy.allowSpouse} />
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.02)', opacity: tempPolicy.allowChildren ? 1 : 0.5, transition: 'opacity 0.3s' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: tempPolicy.allowChildren ? '1.5rem' : 0, alignItems: 'center', transition: 'margin 0.3s' }}>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 900 }}>DEPENDENT CHILDREN</span>
+                                            <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '32px', fontSize: '0.65rem', fontWeight: 900, background: tempPolicy.allowChildren ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: tempPolicy.allowChildren ? '#22c55e' : '#ef4444', border: '1px solid currentColor', borderRadius: '8px' }} onClick={() => setTempPolicy({ ...tempPolicy, allowChildren: !tempPolicy.allowChildren })}>
+                                                {tempPolicy.allowChildren ? 'ENABLED' : 'DISABLED'}
+                                            </button>
+                                        </div>
+                                        {tempPolicy.allowChildren && (
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '1rem' }} className="animate-pop">
+                                                <div className="f-group">
+                                                    <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6 }}>LIMIT</label>
+                                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={tempPolicy.maxChildren} onChange={e => setTempPolicy({ ...tempPolicy, maxChildren: Number(e.target.value) })} disabled={!tempPolicy.allowChildren} />
+                                                </div>
+                                                <div className="f-group">
+                                                    <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6 }}>PREMIUM</label>
+                                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={tempPolicy.childPremium} onChange={e => { const val = e.target.value; setTempPolicy({ ...tempPolicy, childPremium: val, spousePremium: val }); }} disabled={!tempPolicy.allowChildren} />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.02)', opacity: tempPolicy.allowParents ? 1 : 0.5, transition: 'opacity 0.3s' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: tempPolicy.allowParents ? '1.5rem' : 0, alignItems: 'center', transition: 'margin 0.3s' }}>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 900 }}>DEPENDENT PARENTS</span>
+                                            <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '32px', fontSize: '0.65rem', fontWeight: 900, background: tempPolicy.allowParents ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: tempPolicy.allowParents ? '#22c55e' : '#ef4444', border: '1px solid currentColor', borderRadius: '8px' }} onClick={() => setTempPolicy({ ...tempPolicy, allowParents: !tempPolicy.allowParents })}>
+                                                {tempPolicy.allowParents ? 'ENABLED' : 'DISABLED'}
+                                            </button>
+                                        </div>
+                                        {tempPolicy.allowParents && (
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '1rem' }} className="animate-pop">
+                                                <div className="f-group">
+                                                    <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6 }}>LIMIT</label>
+                                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={tempPolicy.maxParents} onChange={e => setTempPolicy({ ...tempPolicy, maxParents: Number(e.target.value) })} disabled={!tempPolicy.allowParents} />
+                                                </div>
+                                                <div className="f-group">
+                                                    <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6 }}>PREMIUM</label>
+                                                    <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={tempPolicy.parentPremium} onChange={e => setTempPolicy({ ...tempPolicy, parentPremium: e.target.value })} disabled={!tempPolicy.allowParents} />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem', fontWeight: 900, letterSpacing: '1px' }} onClick={addPolicyToFY}>
+                                    {tempPolicy.id ? '✓ UPDATE PLAN' : '+ COMMIT PLAN'}
+                                </button>
                             </div>
+
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
                                 {newFY.policies.map(p => (
                                     <div key={p.id} className="glass-panel" style={{ padding: '1.2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.03)' }}>
                                         <div>
-                                            <div style={{ fontWeight: 900 }}>{p.label}</div>
-                                            <div style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 800 }}>₹{p.premium?.toLocaleString()}</div>
+                                            <div style={{ fontWeight: 900, color: 'var(--primary)' }}>{p.label}</div>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: 800 }}>₹{p.premium?.toLocaleString()} Base</div>
+                                            <div style={{ fontSize: '0.65rem', opacity: 0.8, marginTop: '8px' }}>
+                                                {p.allowSpouse ? '| Spouse ' : ''} {p.allowChildren ? `| Child (x${p.maxChildren}) ` : ''} {p.allowParents ? `| Parents (x${p.maxParents})` : ''}
+                                            </div>
                                         </div>
-                                        <button className="btn btn-ghost" style={{ padding: '0.5rem', color: '#ef4444' }} onClick={() => removePolicy(p.id)}><X size={18} /></button>
+                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            <button className="btn btn-ghost" style={{ padding: '0.5rem', color: 'var(--primary-blue)' }} onClick={() => editPolicy(p.id)}><Edit size={18} /></button>
+                                            <button className="btn btn-ghost" style={{ padding: '0.5rem', color: '#ef4444' }} onClick={() => removePolicy(p.id)}><X size={18} /></button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
-                        </div>
-
-                        {/* DEPENDENCY RULES */}
-                        <div style={{ marginBottom: '3rem', padding: 'clamp(1rem, 4vw, 2.5rem)', background: 'rgba(255,255,255,0.02)', border: '2px solid var(--border-glass)' }}>
-                            <h3 style={{ fontSize: '1.1rem', fontWeight: 900, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}><Users size={22} color="var(--primary)" /> Family Member Controls</h3>
-                            
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1.5rem' }}>
-                                {/* Spouse */}
-                                <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.2)' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>
-                                        <span style={{ fontSize: '0.8rem', fontWeight: 900 }}>ALLOW SPOUSE</span>
-                                        <label className="inst-switch">
-                                            <input type="checkbox" checked={newFY.allowSpouse} onChange={e => setNewFY({...newFY, allowSpouse: e.target.checked})} />
-                                            <span className="inst-slider"></span>
-                                        </label>
-                                    </div>
-                                    <div className="f-group">
-                                        <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6 }}>SPOUSE PREMIUM</label>
-                                        <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={newFY.spousePremium} onChange={e => setNewFY({...newFY, spousePremium: Number(e.target.value)})} disabled={!newFY.allowSpouse} />
-                                    </div>
-                                </div>
-
-                                {/* Children */}
-                                <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.2)' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>
-                                        <span style={{ fontSize: '0.8rem', fontWeight: 900 }}>ALLOW CHILDREN</span>
-                                        <label className="inst-switch">
-                                            <input type="checkbox" checked={newFY.allowChildren} onChange={e => setNewFY({...newFY, allowChildren: e.target.checked})} />
-                                            <span className="inst-slider"></span>
-                                        </label>
-                                    </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '1rem' }}>
-                                        <div className="f-group">
-                                            <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6 }}>LIMIT</label>
-                                            <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={newFY.maxChildren} onChange={e => setNewFY({...newFY, maxChildren: Number(e.target.value)})} disabled={!newFY.allowChildren} />
-                                        </div>
-                                        <div className="f-group">
-                                            <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6 }}>PREMIUM</label>
-                                            <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={newFY.childPremium} onChange={e => setNewFY({...newFY, childPremium: Number(e.target.value)})} disabled={!newFY.allowChildren} />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Parents */}
-                                <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.2)' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'center' }}>
-                                        <span style={{ fontSize: '0.8rem', fontWeight: 900 }}>ALLOW PARENTS</span>
-                                        <label className="inst-switch">
-                                            <input type="checkbox" checked={newFY.allowParents} onChange={e => setNewFY({...newFY, allowParents: e.target.checked})} />
-                                            <span className="inst-slider"></span>
-                                        </label>
-                                    </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '1rem' }}>
-                                        <div className="f-group">
-                                            <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6 }}>LIMIT</label>
-                                            <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={newFY.maxParents} onChange={e => setNewFY({...newFY, maxParents: Number(e.target.value)})} disabled={!newFY.allowParents} />
-                                        </div>
-                                        <div className="f-group">
-                                            <label style={{ fontSize: '0.65rem', fontWeight: 900, opacity: 0.6 }}>PREMIUM</label>
-                                            <input type="number" className="glass-panel" style={{ width: '100%', padding: '0.8rem', fontWeight: 700 }} value={newFY.parentPremium} onChange={e => setNewFY({...newFY, parentPremium: Number(e.target.value)})} disabled={!newFY.allowParents} />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
                         </div>
 
                         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '4rem', flexWrap: 'wrap' }}>
@@ -1024,6 +1122,7 @@ const AdminDashboard = () => {
                     </div>
                 </div>
             )}
+
             {selectedUserToReset && (
                 <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(20px)' }}>
                     <div className="glass-panel" style={{ width: '400px', padding: '3rem' }}>
@@ -1059,13 +1158,56 @@ const AdminDashboard = () => {
                             <Mail size={40} />
                         </div>
                         <h2 style={{ fontSize: '2rem', fontWeight: 900, marginBottom: '1rem', letterSpacing: '-1px' }}>BATCH CONFIRMATION</h2>
-                        <p style={{ color: 'var(--text-muted)', fontWeight: 700, marginBottom: '3rem', lineHeight: 1.6 }}>You are about to dispatch automated enrollment receipts to all active participants for the {activeFY?.name} session. This action cannot be undone.</p>
-                        
+                        <p style={{ color: 'var(--text-muted)', fontWeight: 700, marginBottom: '3rem', lineHeight: 1.6 }}>You are about to dispatch automated enrollment receipts to all selected participants. This action cannot be undone.</p>
+
                         <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap' }}>
                             <button className="btn btn-ghost" style={{ flex: 1, padding: '1.2rem', fontWeight: 900 }} onClick={() => setShowMailModal(false)}>CANCEL</button>
-                            <button className="btn btn-primary" style={{ flex: 2, padding: '1.2rem', fontWeight: 900, boxShadow: '0 10px 20px -5px var(--primary-glow)' }} onClick={dispatchBulkEmails} disabled={isMailing}>
+                            <button className="btn btn-primary" style={{ flex: 2, padding: '1.2rem', fontWeight: 900, boxShadow: '0 10px 20px -5px var(--primary-glow)' }} onClick={dispatchEmails} disabled={isMailing}>
                                 {isMailing ? <><Loader2 className="animate-spin" size={18} /> DISPATCHING...</> : <><Send size={18} /> START DISPATCH</>}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showTemplateModal && (
+                <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(15px)' }}>
+                    <div className="glass-panel animate-pop" style={{ width: '95%', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto', padding: 'clamp(1rem, 4vw, 3rem)', border: '1px solid var(--border-glass)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+                            <h2 style={{ fontSize: '1.8rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px' }}><Mail /> Email Center: {selectedFyForMail?.name}</h2>
+                            <button className="btn btn-ghost" onClick={() => setShowTemplateModal(false)}><X /></button>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '2rem' }}>
+                            <div className="glass-panel" style={{ padding: '1.5rem', background: 'var(--bg-surface)' }}>
+                                <h3 style={{ fontWeight: 900, marginBottom: '1rem', color: 'var(--primary)' }}>Dispatch Existing Template</h3>
+                                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+                                    <select className="glass-panel" style={{ flex: 1, padding: '1rem', fontWeight: 700 }} value={selectedTemplateId} onChange={e => setSelectedTemplateId(e.target.value)}>
+                                        <option value="">-- Choose a Saved Template --</option>
+                                        {templates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                                    </select>
+                                    <button className="btn btn-primary" onClick={dispatchCustomMails} disabled={isMailing || !selectedTemplateId}>
+                                        {isMailing ? <Loader2 className="animate-spin" /> : 'SEND TO COHORT'}
+                                    </button>
+                                </div>
+                                {templates.map(t => (
+                                    <div key={t._id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid var(--border-glass)' }}>
+                                        <div style={{ fontWeight: 700 }}>{t.name} <span style={{ opacity: 0.5, fontSize: '0.8rem', marginLeft: '10px' }}>{t.subject}</span></div>
+                                        <button className="btn btn-ghost" style={{ color: '#ef4444', padding: '0.2rem 0.5rem' }} onClick={() => deleteCustomTemplate(t._id)}><Trash2 size={14} /></button>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="glass-panel" style={{ padding: '1.5rem', border: '1px solid var(--border-color)' }}>
+                                <h3 style={{ fontWeight: 900, marginBottom: '1rem' }}>Create New Template</h3>
+                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>Variables available: <code>{`{{userName}}`}</code>, <code>{`{{fyName}}`}</code>, <code>{`{{email}}`}</code>, <code>{`{{coverageId}}`}</code></p>
+
+                                <input className="glass-panel" style={{ width: '100%', padding: '0.8rem', marginBottom: '1rem' }} placeholder="Template Name (e.g. Reject Notice)" value={newTemplate.name} onChange={e => setNewTemplate(n => ({ ...n, name: e.target.value }))} />
+                                <input className="glass-panel" style={{ width: '100%', padding: '0.8rem', marginBottom: '1rem' }} placeholder="Email Subject" value={newTemplate.subject} onChange={e => setNewTemplate(n => ({ ...n, subject: e.target.value }))} />
+                                <textarea className="glass-panel" style={{ width: '100%', padding: '0.8rem', minHeight: '150px', marginBottom: '1rem', fontFamily: 'monospace', fontSize: '0.85rem' }} placeholder="<p>Hello {{userName}}, your coverage {{coverageId}}...</p>" value={newTemplate.html} onChange={e => setNewTemplate(n => ({ ...n, html: e.target.value }))} />
+
+                                <button className="btn btn-ghost" style={{ width: '100%', background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)' }} onClick={saveCustomTemplate}>Save Template</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1076,11 +1218,10 @@ const AdminDashboard = () => {
                     <Loader2 className="animate-spin" size={60} color="var(--primary)" />
                 </div>
             )}
-        </div>
+        </div >
     );
 };
 
 export default AdminDashboard;
-
 
 

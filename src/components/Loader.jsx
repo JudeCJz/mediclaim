@@ -1,5 +1,5 @@
 import React from 'react';
-import { Compass, ShieldCheck } from 'lucide-react';
+import { ShieldCheck, Loader2 } from 'lucide-react';
 
 const Loader = ({ fullScreen = true }) => {
   return (
@@ -8,104 +8,52 @@ const Loader = ({ fullScreen = true }) => {
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      height: fullScreen ? '100vh' : '200px',
+      minHeight: fullScreen ? '100dvh' : undefined,
+      height: fullScreen ? undefined : '200px',
       background: fullScreen ? 'var(--bg-main)' : 'transparent',
-      gap: '2.5rem',
+      gap: '1.5rem',
       overflow: 'hidden',
-      position: 'relative'
+      position: 'relative',
+      boxSizing: 'border-box',
+      ...(fullScreen ? {
+        padding: 'max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left))',
+      } : {}),
     }}>
       <style>
         {`
-          @keyframes core-pulse {
-            0%, 100% { transform: scale(1); filter: brightness(1) drop-shadow(0 0 5px var(--primary)); }
-            50% { transform: scale(1.1); filter: brightness(1.5) drop-shadow(0 0 20px var(--primary)); }
-          }
-          @keyframes fast-spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-          }
-          @keyframes reverse-spin {
-            from { transform: rotate(360deg); }
-            to { transform: rotate(0deg); }
-          }
-          @keyframes scan-line {
-            0% { transform: translateY(-50px); opacity: 0; }
-            50% { opacity: 0.5; }
-            100% { transform: translateY(50px); opacity: 0; }
-          }
-          @keyframes glitch-text {
-            0%, 100% { opacity: 1; transform: translateX(0); }
-            20% { opacity: 0.8; transform: translateX(-2px); }
-            40% { opacity: 0.9; transform: translateX(2px); }
+          @keyframes pulse-subtle {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(0.98); }
           }
         `}
       </style>
 
-      <div style={{ position: 'relative', width: '120px', height: '120px' }}>
-        {/* OUTER SCANNER RING */}
+      <div style={{ position: 'relative', width: '64px', height: '64px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{
-          position: 'absolute', inset: 0,
-          border: '2px dashed var(--primary)',
-          borderRadius: '20px',
-          opacity: 0.3,
-          animation: 'fast-spin 10s linear infinite'
+          position: 'absolute',
+          inset: 0,
+          border: '2px solid var(--border-color)',
+          borderRadius: '16px',
         }} />
-
-        {/* MIDDLE ROTATING PLATE */}
-        <div style={{
-          position: 'absolute', inset: '15px',
-          border: '4px solid var(--border-glass)',
-          borderTopColor: 'var(--primary)',
-          animation: 'reverse-spin 3s cubic-bezier(0.53, 0.21, 0.29, 0.67) infinite',
-          boxShadow: '0 0 15px rgba(99,102,241,0.2)'
-        }} />
-
-        {/* INNER CORE BOX */}
-        <div style={{
-          position: 'absolute', inset: '30px',
-          background: 'rgba(99,102,241,0.1)',
-          border: '2px solid var(--primary)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          animation: 'core-pulse 2s ease-in-out infinite',
-          boxShadow: 'inset 0 0 20px rgba(99,102,241,0.2)',
-          backdropFilter: 'blur(5px)'
-        }}>
-          <Compass color="var(--primary)" size={32} />
-        </div>
-
-        {/* SCANNING LINE DECORATION */}
-        <div style={{
-          position: 'absolute', left: '-10px', right: '-10px', height: '2px',
-          background: 'var(--primary)',
-          top: '50%',
-          boxShadow: '0 0 10px var(--primary)',
-          animation: 'scan-line 2.5s ease-in-out infinite',
-          pointerEvents: 'none'
-        }} />
+        <Loader2 className="animate-spin" size={32} color="var(--primary)" />
       </div>
 
-      <div style={{ textAlign: 'center' }}>
+      <div style={{ textAlign: 'center', animation: 'pulse-subtle 2s ease-in-out infinite' }}>
         <p style={{ 
-          fontWeight: 900, 
-          textTransform: 'uppercase', 
-          letterSpacing: '8px', 
-          fontSize: '0.85rem', 
-          color: 'var(--primary)',
-          animation: 'glitch-text 4s step-end infinite',
-          marginBottom: '0.5rem'
+          fontWeight: 500, 
+          fontSize: '13px', 
+          color: 'var(--text-main)',
+          marginBottom: '4px'
         }}>
-          Syncing_Records
+          Institutional Data Synchronizing
         </p>
-        <div style={{ width: '200px', height: '3px', background: 'rgba(255,255,255,0.05)', margin: '0 auto', overflow: 'hidden' }}>
-            <div style={{ 
-                height: '100%', 
-                width: '30%', 
-                background: 'var(--primary)', 
-                boxShadow: '0 0 10px var(--primary)',
-                animation: 'scan-line 2s ease-in-out infinite alternate',
-                transform: 'none' // override the keyframe for a loading bar effect
-            }} />
-        </div>
+        <p style={{ 
+          fontWeight: 400, 
+          fontSize: '11px', 
+          color: 'var(--text-muted)'
+        }}>
+          Please wait while we verify your session
+        </p>
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ const fs = require('fs');
 const { auth } = require('../middleware/auth');
 const Claim = require('../models/Claim');
 const FinancialYear = require('../models/FinancialYear');
+const { sendMail } = require('./mail');
 
 const uploadsDir = process.env.UPLOADS_DIR || path.join(__dirname, '..', 'uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
@@ -130,12 +131,50 @@ router.get('/my-claims', auth, async (req, res) => {
 
 router.post('/', auth, async (req, res) => {
   try {
+    const targetFyId = req.body.fyId;
+    if (!targetFyId) return res.status(400).json({ msg: 'Missing Financial Year ID' });
+    
+    const fy = await FinancialYear.findById(targetFyId).lean();
+    if (!fy) return res.status(404).json({ msg: 'Financial cycle not found.' });
+    if (!fy.enabled || fy.isArchived) {
+      return res.status(403).json({ msg: 'This enrollment cycle is locked or archived. Submissions rejected.' });
+    }
+    if (fy.lastSubmissionDate && new Date() > new Date(fy.lastSubmissionDate)) {
+      return res.status(403).json({ msg: 'The strict deadline for this cycle has elapsed. Submissions rejected.' });
+    }
+
     const claimData = await mapClaimPayload(req.body, req.user.id);
     const newClaim = new Claim(claimData);
     const claim = await newClaim.save();
 
     const io = req.app.get('io');
     io.emit('CLAIM_UPDATED', claim);
+
+    // Send immediate confirmation email
+    try {
+      await sendMail({
+        to: claim.email,
+        subject: `[CONFIRMED] Enrollment Submission - FY ${claim.fyName}`,
+        html: `
+          <div style="font-family: 'Segoe UI', sans-serif; padding: 30px; border: 1px solid #eee; border-radius: 10px; max-width: 600px; margin: 0 auto; line-height: 1.6;">
+            <h1 style="color: #2563eb; font-weight: 900;">Enrollment Submitted</h1>
+            <p>Hello <strong>${claim.userName}</strong>,</p>
+            <p>Your enrollment for the <strong>FY ${claim.fyName}</strong> cycle has been successfully recorded.</p>
+            
+            <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Coverage Plan:</strong> ${claim.coverageId}</p>
+              <p style="margin: 5px 0 0;"><strong>Estimated Premium:</strong> ₹${claim.premium?.toLocaleString()}</p>
+            </div>
+
+            <p>You can view yours receipt and update your details anytime by logging into the portal.</p>
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
+            <p style="font-size: 12px; color: #666;">This is an automated institutional confirmation. No signature required.</p>
+          </div>
+        `
+      });
+    } catch (mailErr) {
+      console.error('Immediate confirmation email failed:', mailErr);
+    }
 
     res.status(201).json(claim);
   } catch (err) {
@@ -173,11 +212,14 @@ router.put('/:id', auth, async (req, res) => {
       return res.status(403).json({ msg: 'Access denied' });
     }
 
-    // Faculty cannot edit once the financial year is disabled
+    // Faculty cannot edit once the financial year is disabled OR deadline breached
     if (isOwner && !isApprover) {
       const fy = await FinancialYear.findById(claim.fyId).lean();
-      if (fy && !fy.enabled) {
-        return res.status(403).json({ msg: 'This financial year is closed. Editing is no longer allowed.' });
+      if (!fy || !fy.enabled || fy.isArchived) {
+        return res.status(403).json({ msg: 'This financial cycle is closed. Editing is no longer permitted.' });
+      }
+      if (fy.lastSubmissionDate && new Date() > new Date(fy.lastSubmissionDate)) {
+        return res.status(403).json({ msg: 'The strict deadline for this cycle has elapsed. Profile locked.' });
       }
     }
 
@@ -206,5 +248,28 @@ router.put('/:id', auth, async (req, res) => {
   }
 });
 
+router.delete('/:id', auth, async (req, res) => {
+  try {
+    let claim = await Claim.findById(req.params.id);
+    if (!claim) return res.status(404).json({ msg: 'Claim not found' });
+
+    const isOwner = claim.userId.toString() === req.user.id;
+    const isApprover = req.user.role === 'admin' || req.user.role === 'hod';
+    
+    if (!isOwner && !isApprover) {
+      return res.status(403).json({ msg: 'Access denied' });
+    }
+
+    await claim.deleteOne();
+
+    const io = req.app.get('io');
+    io.emit('CLAIM_DELETED', req.params.id);
+
+    res.json({ msg: 'Claim removed' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ msg: 'Failed to delete claim' });
+  }
+});
 
 module.exports = router;

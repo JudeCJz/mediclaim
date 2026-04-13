@@ -9,63 +9,16 @@ import History from './pages/History';
 import Settings from './pages/Settings';
 import SecurityInfo from './pages/SecurityInfo';
 import Agreement from './pages/Agreement';
-import { ShieldCheck, X } from 'lucide-react';
-
-import logo from './assets/logo.png';
-
-const InstallPrompt = () => {
-  const [deferredPrompt, setDeferredPrompt] = React.useState(null);
-  const [visible, setVisible] = React.useState(false);
-
-  React.useEffect(() => {
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      setVisible(true);
-    });
-  }, []);
-
-  const handleInstall = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') setVisible(false);
-    setDeferredPrompt(null);
-  };
-
-  if (!visible) return null;
-
-  return (
-    <div className="glass-panel" style={{ 
-      position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-      width: '90%', maxWidth: '450px', padding: '1.2rem 1.5rem', zIndex: 9999,
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      boxShadow: '0 20px 50px rgba(0,0,0,0.5)', border: '1px solid var(--border-glass)',
-      background: 'rgba(10,10,10,0.9)', backdropFilter: 'blur(20px)'
-    }}>
-      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-        <img src={logo} style={{ width: '40px', height: '40px', objectFit: 'contain' }} alt="MEDICLAIM_LOGO" />
-        <div>
-          <div style={{ fontWeight: 900, fontSize: '0.9rem' }}>Install App</div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Add to home screen for better experience</div>
-        </div>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-        <button className="btn btn-primary" onClick={handleInstall} style={{ padding: '0.6rem 1.2rem', fontSize: '0.75rem' }}>Install</button>
-        <button onClick={() => setVisible(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={18} /></button>
-      </div>
-    </div>
-  );
-};
+import { ShieldCheck } from 'lucide-react';
 
 const Protected = ({ children, role }) => {
   const { user, loading, activeFY } = useApp();
   if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main)', gap: '1.5rem' }}>
-        <div style={{ width: '80px', height: '80px', background: 'var(--primary)', boxShadow: '0 0 50px var(--primary-glow)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse 2s infinite' }}>
-            <ShieldCheck size={40} color="white" />
+    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main)', gap: '1.25rem', padding: 'max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left))', boxSizing: 'border-box' }}>
+        <div style={{ width: '56px', height: '56px', borderRadius: '12px', background: '#1E3A5F', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse 2s infinite' }}>
+            <ShieldCheck size={28} color="white" />
         </div>
-        <div style={{ letterSpacing: '1px', fontSize: '0.9rem', fontWeight: 900, color: 'var(--text-muted)' }}>Verifying Security...</div>
+        <div style={{ fontSize: '13px', fontWeight: 400, color: 'var(--text-muted)' }}>Verifying Security...</div>
     </div>
   );
   if (!user) return <Navigate to="/login" />;
@@ -76,22 +29,11 @@ const Protected = ({ children, role }) => {
       <Sidebar />
       <main className="main-content">
         {activeFY && (
-          <div style={{ 
-            marginBottom: '1rem', 
-            padding: '0.6rem 1rem', 
-            background: 'var(--primary)10', 
-            border: '1px solid var(--primary)30',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '10px',
-            fontSize: '0.65rem',
-            fontWeight: 900,
-            letterSpacing: '1px',
-            color: 'var(--primary)',
-            textTransform: 'uppercase'
+          <div className="session-badge" style={{ 
+            marginBottom: '1.5rem', 
+            fontSize: '11px'
           }}>
-            <ShieldCheck size={12} /> ACTIVE SESSION: FY {activeFY.name}
+            ACTIVE SESSION &bull; FY {activeFY.name}
           </div>
         )}
         {children}
@@ -103,11 +45,11 @@ const Protected = ({ children, role }) => {
 const Home = () => {
     const { user, loading } = useApp();
     if (loading) return (
-        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main)', gap: '1.5rem' }}>
-            <div style={{ width: '80px', height: '80px', background: 'var(--primary)', boxShadow: '0 0 50px var(--primary-glow)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse 2s infinite' }}>
-                <ShieldCheck size={40} color="white" />
+        <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-main)', gap: '1.25rem', padding: 'max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left))', boxSizing: 'border-box' }}>
+            <div style={{ width: '56px', height: '56px', borderRadius: '12px', background: '#1E3A5F', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse 2s infinite' }}>
+                <ShieldCheck size={28} color="white" />
             </div>
-            <div style={{ letterSpacing: '1px', fontSize: '0.9rem', fontWeight: 900, color: 'var(--text-muted)' }}>Synchronizing Access...</div>
+            <div style={{ fontSize: '13px', fontWeight: 400, color: 'var(--text-muted)' }}>Synchronizing Access...</div>
         </div>
     );
 
@@ -121,7 +63,6 @@ function App() {
   return (
     <Router>
       <AppProvider>
-        <InstallPrompt />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/faculty" element={<Protected role="faculty"><FacultyDashboard /></Protected>} />

@@ -60,7 +60,8 @@ router.post('/bulk-register', adminAuth, async (req, res) => {
 
     const [name, department, emailPart, empIdInput, designation = '', phone = ''] = parts;
     const email = emailPart?.trim().toLowerCase();
-    const empId = empIdInput ? empIdInput.trim() : email;
+    // Use the provided employee ID, or generate a temporary placeholder to satisfy MongoDB unique constraints
+    const empId = empIdInput ? empIdInput.trim() : `PENDING-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
     // Skip the CSV header row (case-insensitive check)
     if (
@@ -83,8 +84,12 @@ router.post('/bulk-register', adminAuth, async (req, res) => {
     }
 
     try {
-      // Check for existing user by email OR empId
-      const existing = await User.findOne({ $or: [{ email }, { empId }] });
+      // Check for existing user by email OR empId (only if empId is provided)
+      const queryOr = [{ email }];
+      if (empId) {
+          queryOr.push({ empId });
+      }
+      const existing = await User.findOne({ $or: queryOr });
       if (existing) {
         existing.name = name;
         existing.department = department;

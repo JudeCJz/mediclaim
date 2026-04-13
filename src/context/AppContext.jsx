@@ -20,7 +20,7 @@ export const AppProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
-  const [activeFY, setActiveFY] = useState(DEMO_FY);
+  const [activeFY, setActiveFY] = useState(null);
   const [activeTab, setActiveTabState] = useState(localStorage.getItem('activeTab') || 'overview');
   const [socket, setSocket] = useState(null);
   const isDemoMode = false;
@@ -55,10 +55,8 @@ export const AppProvider = ({ children }) => {
           const res = await api.get('/auth/user');
           setUser(res.data);
           const fyRes = await api.get('/financialYears');
-          const active = fyRes.data.find((fy) => fy.enabled && !fy.isArchived) || fyRes.data[0];
-          if (active) {
-            setActiveFY(active);
-          }
+          const active = fyRes.data.find((fy) => fy.enabled && !fy.isArchived);
+          setActiveFY(active || null);
         } catch (err) {
           console.error("Token invalid or server down", err);
           localStorage.removeItem('token');
@@ -86,6 +84,17 @@ export const AppProvider = ({ children }) => {
         console.log('Claim Updated:', updatedClaim);
       });
 
+      newSocket.on('FY_UPDATED', async () => {
+        try {
+            const fyRes = await api.get('/financialYears');
+            const active = fyRes.data.find((fy) => fy.enabled && !fy.isArchived);
+            setActiveFY(active || null);
+            console.log('Active FY Synchronized via Socket');
+        } catch (err) {
+            console.error('Socket FY Sync Error:', err);
+        }
+      });
+
       return () => newSocket.close();
     }
   }, [user]);
@@ -99,10 +108,8 @@ export const AppProvider = ({ children }) => {
     setActiveTab(defaultTab);
     try {
       const fyRes = await api.get('/financialYears');
-      const active = fyRes.data.find((fy) => fy.enabled && !fy.isArchived) || fyRes.data[0];
-      if (active) {
-        setActiveFY(active);
-      }
+      const active = fyRes.data.find((fy) => fy.enabled && !fy.isArchived);
+      setActiveFY(active || null);
     } catch (err) {
       console.error('Failed to load financial years after login:', err);
     }

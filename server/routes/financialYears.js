@@ -43,13 +43,51 @@ router.post('/', adminAuth, async (req, res) => {
   }
 });
 
+const Claim = require('../models/Claim');
+const { sendMail } = require('./mail');
+
 router.put('/:id', adminAuth, async (req, res) => {
   try {
+    const existingFY = await FinancialYear.findById(req.params.id);
+    if (!existingFY) return res.status(404).json({ msg: 'Financial year not found' });
+    
+    let isExtension = false;
+    if (req.body.lastSubmissionDate && existingFY.lastSubmissionDate) {
+        if (new Date(req.body.lastSubmissionDate) > new Date(existingFY.lastSubmissionDate)) {
+            isExtension = true;
+            req.body.deadlineEmailSent = false;
+            req.body.warning48hEmailSent = false;
+        }
+    }
+
     const updated = await FinancialYear.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true
     });
-    if (!updated) return res.status(404).json({ msg: 'Financial year not found' });
+    
+    if (isExtension) {
+        try {
+            const submissions = await Claim.find({ fyId: req.params.id, archived: { $ne: true } });
+            for (const claim of submissions) {
+                await sendMail({
+                    to: claim.email,
+                    subject: `[DEADLINE EXTENDED] Mediclaim FY ${updated.name}`,
+                    html: `
+                        <div style="font-family: 'Segoe UI', Arial, sans-serif; padding: 30px; border: 1px solid #e0e0e0; border-top: 5px solid #3b82f6; max-width: 600px;">
+                            <h2 style="color: #3b82f6;">Enrollment Deadline Extended</h2>
+                            <p>Dear ${claim.userName},</p>
+                            <p>The institutional administration has extended the medical insurance enrollment deadline for <b>FY ${updated.name}</b>.</p>
+                            <p>The new strict deadline is: <b>${new Date(updated.lastSubmissionDate).toLocaleDateString()}</b>.</p>
+                            <p>You may continue to log in and update your coverage/dependents until this new date.</p>
+                        </div>
+                    `
+                });
+            }
+        } catch (mailErr) {
+            console.error('Failed to dispatch extension emails:', mailErr);
+        }
+    }
+
     req.app.get('io').emit('FY_UPDATED', { id: updated._id.toString() });
     res.json(serializeFY(updated));
   } catch (err) {

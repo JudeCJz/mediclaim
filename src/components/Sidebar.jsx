@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { LayoutDashboard, History, LogOut, Sun, Moon, Menu, X, Settings as SettingsIcon, FileText, Users } from 'lucide-react';
 
 import logo from '../assets/logo.png';
+import DefaultRoleAvatar from './DefaultRoleAvatar';
 
 const Sidebar = () => {
   const { user, logout, theme, toggleTheme, activeTab, setActiveTab } = useApp();
@@ -11,144 +12,145 @@ const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const navItemStyle = { 
-    textDecoration: 'none', 
-    display: 'flex', 
-    alignItems: 'center', 
-    gap: '1rem', 
-    padding: '1rem 1.5rem', 
-    fontWeight: 800, 
-    textTransform: 'uppercase', 
-    fontSize: '0.85rem',
-    width: '100%',
-    textAlign: 'left',
-    justifyContent: 'flex-start',
-    transition: 'all 0.2s ease'
-  };
 
-  const createRipple = (e) => {
-    const btn = e.currentTarget;
-    // Remove any existing ripples first
-    btn.querySelectorAll('.sidebar-ripple').forEach(r => r.remove());
-    const circle = document.createElement('span');
-    const rect = btn.getBoundingClientRect();
-    const size = Math.max(rect.width, rect.height);
-    const x = e.clientX - rect.left - size / 2;
-    const y = e.clientY - rect.top - size / 2;
-    circle.style.width = circle.style.height = `${size}px`;
-    circle.style.left = `${x}px`;
-    circle.style.top = `${y}px`;
-    circle.className = 'sidebar-ripple';
-    btn.appendChild(circle);
-    setTimeout(() => circle.remove(), 700);
-  };
-
-  const handleTabClick = (tab, e) => {
-    if (e) createRipple(e);
-    // Delay state update so ripple is visible before re-render
-    setTimeout(() => {
-      setActiveTab(tab);
-      setIsOpen(false);
-      navigate('/');
-    }, 200);
+  const handleTabClick = (tab) => {
+    setActiveTab(tab);
+    setIsOpen(false);
+    navigate('/');
   };
 
   const isAdminOrHOD = user?.role === 'admin' || user?.role === 'hod';
-  const isDashboardBase = location.pathname === '/' || location.pathname === '/admin' || location.pathname === '/hod' || location.pathname === '/faculty';
+  const isDashboardBase = ['/', '/admin', '/hod', '/faculty'].includes(location.pathname);
+
+  const isTabActive = (tab) => isDashboardBase && (activeTab === tab || (!activeTab && tab === (isAdminOrHOD ? 'years' : 'overview')));
 
   return (
     <>
-      {/* MOBILE TRIGGER - Top Right (Fixed) */}
-      <button 
-        className="btn btn-primary mobile-only" 
-        style={{ 
-            position: 'fixed', bottom: '20px', right: '20px', 
-            zIndex: 2000, padding: '0.8rem', 
-            boxShadow: '6px 6px 0px #000', border: '3px solid #000'
-        }} 
+      {/* Mobile FAB */}
+      <button
+        className="mobile-only"
+        style={{
+          position: 'fixed',
+          bottom: 'calc(20px + env(safe-area-inset-bottom, 0px))',
+          right: 'calc(20px + env(safe-area-inset-right, 0px))',
+          zIndex: 2000, width: '48px', height: '48px',
+          borderRadius: '50%', background: '#1E3A5F', color: '#fff',
+          border: 'none', cursor: 'pointer', display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 4px 12px rgba(30,58,95,0.2)',
+        }}
         onClick={() => setIsOpen(!isOpen)}
       >
-        {isOpen ? <X size={24} /> : <Menu size={24} />}
+        {isOpen ? <X size={20} /> : <Menu size={20} />}
       </button>
 
-      {/* SIDEBAR */}
+      {/* Sidebar */}
       <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
-        <div style={{ padding: '2rem 1.5rem', borderBottom: '2px solid var(--border-glass)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.2rem' }}>
-          <img src={logo} style={{ width: '40px', height: '40px', objectFit: 'contain', filter: 'drop-shadow(0 0 10px var(--primary-glow))' }} alt="MEDICLAIM_LOGO" />
-          <div style={{ textAlign: 'left' }}>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 900, letterSpacing: '1px', margin: 0, lineHeight: 1 }}>MEDICLAIM</h2>
-            <p style={{ color: 'var(--primary)', fontSize: '0.65rem', fontWeight: 900, marginTop: '4px', textTransform: 'uppercase', letterSpacing: '1px' }}>INSTITUTIONAL_PORTAL</p>
+        {/* Brand */}
+        <div style={{
+          padding: '0.75rem 0.875rem 1.25rem',
+          borderBottom: 'var(--border)',
+          marginBottom: '0.25rem',
+          display: 'flex', alignItems: 'center', gap: '0.75rem',
+        }}>
+          <div className="brand-logo-box" style={{ width: '32px', height: '32px', borderRadius: '8px', flexShrink: 0 }}>
+            <img src={logo} className="brand-logo-image" alt="logo" />
+          </div>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-main)', lineHeight: 1.2 }}>Mediclaim Portal</div>
+            <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '1px' }}>Institutional System</div>
           </div>
         </div>
 
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        {/* Nav section label */}
+        <div style={{ padding: '1rem 0.875rem 0.375rem', fontSize: '12px', fontWeight: 500, color: '#475E75', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          Navigation
+        </div>
+
+        {/* Navigation */}
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '0 0.25rem' }}>
           {isAdminOrHOD && (
             <>
-              <button 
-                onClick={(e) => handleTabClick('years', e)} 
-                className={`btn ${(isDashboardBase && (activeTab === 'years' || !activeTab)) ? 'btn-primary' : 'btn-ghost'}`} 
-                style={navItemStyle}
-              >
-                <LayoutDashboard size={20} /> <span>Enrollment Cycles</span>
+              <button onClick={() => handleTabClick('years')} className={isTabActive('years') ? "sidebar-item sidebar-item-active" : "sidebar-item"}>
+                <LayoutDashboard size={15} /> Enrollment Cycles
               </button>
-              <button 
-                onClick={(e) => handleTabClick('registry', e)} 
-                className={`btn ${(isDashboardBase && activeTab === 'registry') ? 'btn-primary' : 'btn-ghost'}`} 
-                style={navItemStyle}
-              >
-                <FileText size={20} /> <span>Enrollment Database</span>
+              <button onClick={() => handleTabClick('registry')} className={isTabActive('registry') ? "sidebar-item sidebar-item-active" : "sidebar-item"}>
+                <FileText size={15} /> Database Records
               </button>
-              <button 
-                onClick={(e) => handleTabClick('recruit', e)} 
-                className={`btn ${(isDashboardBase && activeTab === 'recruit') ? 'btn-primary' : 'btn-ghost'}`} 
-                style={navItemStyle}
-              >
-                <Users size={20} /> <span>Faculty Records</span>
+              <button onClick={() => handleTabClick('recruit')} className={isTabActive('recruit') ? "sidebar-item sidebar-item-active" : "sidebar-item"}>
+                <Users size={15} /> Faculty Management
               </button>
             </>
           )}
 
           {!isAdminOrHOD && (
-            <button 
-              onClick={(e) => handleTabClick('overview', e)} 
-              className={`btn ${(isDashboardBase && (activeTab === 'overview' || !activeTab)) ? 'btn-primary' : 'btn-ghost'}`} 
-              style={navItemStyle}
-            >
-              <LayoutDashboard size={20} /> <span>My Enrollment</span>
-            </button>
-          )}
-
-          {!isAdminOrHOD && (
-            <NavLink to="/history" onClick={(e) => { createRipple(e); setIsOpen(false); }} className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-ghost'}`} style={navItemStyle}>
-               <History size={20} /> <span>Filing History</span>
-            </NavLink>
+            <>
+              <button onClick={() => handleTabClick('overview')} className={isTabActive('overview') ? "sidebar-item sidebar-item-active" : "sidebar-item"}>
+                <LayoutDashboard size={15} /> My Enrollment
+              </button>
+              <NavLink
+                to="/history"
+                onClick={() => setIsOpen(false)}
+                className={({ isActive }) => isActive ? "sidebar-item sidebar-item-active" : "sidebar-item"}
+              >
+                <History size={15} /> Filing History
+              </NavLink>
+            </>
           )}
         </nav>
 
-        <div style={{ marginTop: 'auto', paddingTop: '2rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <button className="btn btn-ghost" style={navItemStyle} onClick={(e) => { createRipple(e); toggleTheme(); }}>
-            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-            <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+        {/* Bottom actions */}
+        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '2px', padding: '0 0.25rem' }}>
+          <div style={{ height: '0.5px', background: '#DDE3EE', margin: '0.75rem 0.625rem' }} />
+
+          <button onClick={toggleTheme} className="sidebar-item">
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+            {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
           </button>
 
-          <NavLink to="/settings" onClick={(e) => { createRipple(e); setIsOpen(false); }} className={({ isActive }) => `btn ${isActive ? 'btn-primary' : 'btn-ghost'}`} style={{ ...navItemStyle, borderTop: '1px solid var(--border-glass)' }}>
-            <SettingsIcon size={20} /> <span>Account Settings</span>
+          <NavLink
+            to="/settings"
+            onClick={() => setIsOpen(false)}
+            className={({ isActive }) => isActive ? "sidebar-item sidebar-item-active" : "sidebar-item"}
+          >
+            <SettingsIcon size={15} /> Account Settings
           </NavLink>
-          
-          <button className="btn btn-ghost" style={{ ...navItemStyle, color: '#ef4444' }} onClick={(e) => { createRipple(e); logout(); }}>
-            <LogOut size={20} /> <span>Logout</span>
-          </button>
-          
 
-          <div style={{ padding: '1.5rem', position: 'relative', borderTop: '1px solid var(--border-glass)' }}>
-            <div style={{ fontWeight: 900, fontSize: '0.85rem', color: 'var(--primary)' }}>{user?.name || 'User'}</div>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700 }}>INSTITUTIONAL ACCESS</div>
+          <button
+            onClick={logout}
+            className="sidebar-item"
+            style={{ color: '#A32D2D' }}
+          >
+            <LogOut size={15} /> Sign Out
+          </button>
+
+          {/* User profile strip */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.625rem',
+            padding: '0.875rem 0.875rem 0.375rem',
+            marginTop: '0.25rem',
+            borderTop: '0.5px solid var(--border-color)',
+          }}>
+            <DefaultRoleAvatar role={user?.role} name={user?.name} size={28} />
+            <div style={{ overflow: 'hidden' }}>
+              <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {user?.name || 'User'}
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                {user?.role?.charAt(0).toUpperCase() + user?.role?.slice(1) || 'Staff'}
+              </div>
+            </div>
           </div>
         </div>
       </aside>
 
-      {/* MOBILE OVERLAY */}
-      {isOpen && <div className="overlay mobile-only" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1000, backdropFilter: 'blur(4px)' }} onClick={() => setIsOpen(false)} />}
+      {/* Mobile overlay */}
+      {isOpen && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(30,58,95,0.2)', zIndex: 1000, backdropFilter: 'blur(2px)' }}
+          onClick={() => setIsOpen(false)}
+        />
+      )}
     </>
   );
 };

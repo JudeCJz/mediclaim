@@ -26,7 +26,7 @@ echo ========================================
 echo.
 echo Access at: http://localhost:5173
 echo.
-echo Login: admin@college.edu / admin123
+echo Login: admin@college.edu / admin@college.edu
 echo.
 echo Keep all windows open while using the app
 echo.

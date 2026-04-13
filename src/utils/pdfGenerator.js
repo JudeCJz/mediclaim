@@ -1,147 +1,148 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
-/**
- * Generates a professional PDF receipt for a mediclaim enrollment submission.
- * @param {Object} data - The submission data (submission, user, financialYear).
- * @param {string} logoBase64 - Optional logo in base64 format.
- */
 export const generateEnrollmentPDF = (data, logoBase64 = null) => {
     const { submission, activeFY } = data;
-    if (!submission) {
-        console.error("PDF Generation failed: No submission data provided.");
-        return;
-    }
-    const doc = new jsPDF();
-    const primaryColor = [79, 70, 229]; // Indigo-600 (approx var(--primary))
-    const textColor = [31, 41, 55]; // Gray-800
-    const mutedTextColor = [107, 114, 128]; // Gray-500
+    if (!submission) return;
 
-    // --- 1. Header & Logo ---
-    if (logoBase64) {
-        doc.addImage(logoBase64, 'PNG', 15, 15, 20, 20);
-    }
-    
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(22);
-    doc.setTextColor(...primaryColor);
-    doc.text("MEDICLAIM PORTAL", 40, 24);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(...mutedTextColor);
-    doc.setFont("helvetica", "normal");
-    doc.text("Official Enrollment Confirmation Receipt", 40, 30);
-    doc.text(`Generated on: ${new Date().toLocaleString()}`, 195, 20, { align: "right" });
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const PW = 210;
+    const margin = 14;
+    const contentW = PW - margin * 2; // 182mm
+    let y = 0;
 
-    doc.setDrawColor(...primaryColor);
-    doc.setLineWidth(0.5);
-    doc.line(15, 40, 195, 40);
+    // ── colors ──
+    const indigo = [55, 65, 181];
+    const slate = [30, 30, 45];
+    const muted = [110, 115, 130];
+    const light = [245, 246, 250];
+    const border = [210, 214, 224];
+    const white = [255, 255, 255];
 
-    // --- 2. Personal & Professional Details ---
-    doc.setFontSize(14);
-    doc.setTextColor(...textColor);
-    doc.setFont("helvetica", "bold");
-    doc.text("Personal & Professional Profile", 15, 52);
+    // ── tiny helpers ──
+    const font = (size, style = "normal", color = slate) => {
+        doc.setFont("helvetica", style);
+        doc.setFontSize(size);
+        doc.setTextColor(...color);
+    };
+    const fill = (...rgb) => doc.setFillColor(...rgb);
+    const draw = (...rgb) => doc.setDrawColor(...rgb);
+    const rule = (ry, color = border) => { draw(...color); doc.setLineWidth(0.2); doc.line(margin, ry, PW - margin, ry); };
+    const label = (text, lx, ly) => { font(7.5, "normal", muted); doc.text(text, lx, ly); };
+    const value = (text, vx, vy, bold = false) => { font(8.5, bold ? "bold" : "normal", slate); doc.text(String(text ?? "—"), vx, vy); };
 
-    const profileData = [
-        ["Full Name", submission.userName || 'N/A', "Employee ID", submission.empId || 'N/A'],
-        ["Department", submission.department || 'N/A', "Designation", submission.designation || 'N/A'],
-        ["Institutional Email", submission.email || 'N/A', "Phone", submission.phone || 'N/A'],
-        ["Date of Joining", submission.doj || 'N/A', "Gender", submission.gender || 'N/A'],
-    ];
+    // ── header ──
+    fill(...indigo);
+    doc.rect(0, 0, PW, 26, "F");
 
-    autoTable(doc, {
-        startY: 58,
-        body: profileData,
-        theme: 'plain',
-        styles: { fontSize: 9, cellPadding: 3 },
-        columnStyles: {
-            0: { fontStyle: 'bold', textColor: mutedTextColor, cellWidth: 35 },
-            1: { cellWidth: 60 },
-            2: { fontStyle: 'bold', textColor: mutedTextColor, cellWidth: 35 },
-            3: { cellWidth: 55 },
-        }
-    });
+    font(16, "bold", white);
+    doc.text("MEDICLAIM PORTAL", margin, 12);
+    font(7.5, "normal", [190, 200, 255]);
+    doc.text("Institutional Health Insurance · Enrollment Confirmation", margin, 18);
 
-    // --- 3. Coverage & Policy Details ---
-    const policyY = doc.lastAutoTable.finalY + 15;
-    doc.setFontSize(14);
-    doc.setTextColor(...textColor);
-    doc.setFont("helvetica", "bold");
-    doc.text("Coverage & Policy Configuration", 15, policyY);
+    font(7, "normal", [190, 200, 255]);
+    doc.text(`Generated: ${new Date().toLocaleString()}   |   FY ${activeFY?.name ?? "—"}`, PW - margin, 12, { align: "right" });
 
-    const policyData = [
-        ["Financial Cycle", `FY ${activeFY?.name || 'Unknown'}`, "Base Premium", `INR ${(submission.basePremium || 0).toLocaleString()}`],
-        ["Policy Tier", submission.coverageId || 'N/A', "Spouse Premium", `INR ${(submission.spousePremium || 0).toLocaleString()}`],
-        ["Total Insured Lives", (submission.dependents?.length || 0) + 1, "Dependents Premium", `INR ${((submission.childrenPremium || 0) + (submission.parentsPremium || 0)).toLocaleString()}`],
-    ];
+    y = 33;
 
-    autoTable(doc, {
-        startY: policyY + 6,
-        body: policyData,
-        theme: 'plain',
-        styles: { fontSize: 9, cellPadding: 3 },
-        columnStyles: {
-            0: { fontStyle: 'bold', textColor: mutedTextColor, cellWidth: 35 },
-            1: { cellWidth: 60 },
-            2: { fontStyle: 'bold', textColor: mutedTextColor, cellWidth: 35 },
-            3: { cellWidth: 55 },
-        }
-    });
+    // ── name + emp id row ──
+    font(13, "bold", indigo);
+    doc.text(submission.userName ?? "—", margin, y);
 
-    // TOTAL AMOUNT HIGHLIGHT
-    const totalY = doc.lastAutoTable.finalY + 10;
-    doc.setFillColor(249, 250, 251); // Gray-50
-    doc.rect(15, totalY, 180, 20, 'F');
-    doc.setFontSize(12);
-    doc.setTextColor(...textColor);
-    doc.text("Estimated Net Premium Payable:", 25, totalY + 13);
-    doc.setFontSize(16);
-    doc.setTextColor(...primaryColor);
-    doc.text(`INR ${submission.premium?.toLocaleString() || '0'}`, 185, totalY + 13, { align: "right" });
+    font(8, "normal", muted);
+    doc.text(`${submission.empId ?? "—"}  ·  ${submission.designation ?? "—"}  ·  ${submission.department ?? "—"}`, margin, y + 6);
 
-    // --- 4. Dependents Table ---
-    if (submission.dependents && submission.dependents.length > 0) {
-        const depY = totalY + 30;
-        doc.setFontSize(14);
-        doc.setTextColor(...textColor);
-        doc.setFont("helvetica", "bold");
-        doc.text("Insured Beneficiaries (Dependents)", 15, depY);
+    y += 13;
+    rule(y);
+    y += 6;
 
-        const depHeaders = [["ID", "Name", "Relationship", "Gender", "Date of Birth"]];
-        const depBody = submission.dependents.map((d, index) => [
-            index + 1, 
-            d.name, 
-            d.type ? (d.type.charAt(0).toUpperCase() + d.type.slice(1)) : 'N/A', 
-            d.gender || 'N/A', 
-            d.dob || 'N/A'
-        ]);
+    // ── reusable two-column row renderer ──
+    // each row = [leftLabel, leftValue, rightLabel, rightValue]
+    // L1=label col1 x, V1=value col1 x, L2=label col2 x, V2=value col2 x
+    const L1 = margin, V1 = margin + 32, L2 = margin + 95, V2 = margin + 130;
+    const ROW = 8;
+
+    const renderRows = (rows, boldVals = false) => {
+        rows.forEach(([l1, v1, l2, v2], i) => {
+            const ry = y + i * ROW;
+            if (i % 2 === 0) { fill(...light); doc.rect(margin, ry - 3, contentW, ROW, "F"); }
+            label(l1, L1 + 2, ry + 2.5);
+            value(v1, V1, ry + 2.5, boldVals);
+            if (l2) label(l2, L2, ry + 2.5);
+            if (v2) value(v2, V2, ry + 2.5, boldVals);
+        });
+        y += rows.length * ROW + 5;
+    };
+
+    // ── personal details ──
+    font(7, "bold", indigo);
+    doc.text("PERSONAL & CONTACT", margin, y);
+    y += 4;
+
+    renderRows([
+        ["Email", submission.email ?? "—", "Phone", submission.phone ?? "—"],
+        ["Date of Join", submission.doj ?? "—", "Gender", submission.gender ?? "—"],
+    ]);
+
+    rule(y - 2);
+    y += 4;
+
+    // ── policy details ──
+    font(7, "bold", indigo);
+    doc.text("COVERAGE & POLICY", margin, y);
+    y += 4;
+
+    renderRows([
+        ["Financial Cycle", `FY ${activeFY?.name ?? "—"}`, "Policy Tier", submission.coverageId ?? "—"],
+        ["Total Insured", `${(submission.dependents?.length ?? 0) + 1} lives`, "Base Premium", `INR ${(submission.basePremium ?? 0).toLocaleString()}`],
+        ["Spouse Premium", `INR ${(submission.spousePremium ?? 0).toLocaleString()}`, "Dep. Premium", `INR ${((submission.childrenPremium ?? 0) + (submission.parentsPremium ?? 0)).toLocaleString()}`],
+    ], true);
+
+    rule(y - 2);
+    y += 6;
+
+    // ── total premium ──
+    fill(...indigo);
+    doc.roundedRect(margin, y, contentW, 12, 1.5, 1.5, "F");
+    font(8, "normal", [190, 200, 255]);
+    doc.text("NET PREMIUM PAYABLE", margin + 4, y + 7.5);
+    font(13, "bold", white);
+    doc.text(`INR ${(submission.premium ?? 0).toLocaleString()}`, PW - margin - 4, y + 8, { align: "right" });
+    y += 18;
+
+    // ── dependents table ──
+    if (submission.dependents?.length > 0) {
+        font(7, "bold", indigo);
+        doc.text("DEPENDENTS", margin, y);
+        y += 4;
 
         autoTable(doc, {
-            startY: depY + 6,
-            head: depHeaders,
-            body: depBody,
-            headStyles: { fillColor: primaryColor, textColor: 255, fontStyle: 'bold' },
-            styles: { fontSize: 9, cellPadding: 4 },
-            alternateRowStyles: { fillColor: [249, 250, 251] }
+            startY: y,
+            head: [["#", "Name", "Relationship", "Gender", "DOB"]],
+            body: submission.dependents.map((d, i) => [
+                i + 1,
+                d.name ?? "—",
+                d.type ? d.type[0].toUpperCase() + d.type.slice(1) : "—",
+                d.gender ?? "—",
+                d.dob ?? "—",
+            ]),
+            styles: { fontSize: 8, cellPadding: 3, textColor: slate, lineColor: border, lineWidth: 0.15 },
+            headStyles: { fillColor: indigo, textColor: white, fontStyle: "bold", fontSize: 7.5 },
+            alternateRowStyles: { fillColor: light },
+            columnStyles: { 0: { cellWidth: 10, halign: "center" }, 1: { cellWidth: 52 }, 2: { cellWidth: 38 }, 3: { cellWidth: 28 }, 4: { cellWidth: 40 } },
+            margin: { left: margin, right: margin },
         });
+
+        y = doc.lastAutoTable.finalY + 8;
     }
 
-    // --- 5. Footer / Verification ---
-    const finalY = (doc.lastAutoTable ? doc.lastAutoTable.finalY + 20 : totalY + 50);
-    doc.setFontSize(8);
-    doc.setTextColor(...mutedTextColor);
-    doc.setFont("helvetica", "italic");
-    doc.text("Note: This is a system-generated receipt. Final premium deductions are subject to administrative review and payroll cycle synchronization.", 105, (finalY > 270 ? 270 : finalY), { align: "center" });
-    
-    doc.setLineWidth(0.1);
-    doc.setDrawColor(209, 213, 219);
-    doc.line(15, 275, 195, 275);
-    
-    doc.setFont("helvetica", "normal");
-    doc.text("Portal: Mediclaim | Security Protocol: SHA-256 Verified Submission", 15, 282);
-    doc.text("Page 1 of 1", 195, 282, { align: "right" });
+    // ── footer ──
+    const fy = 297 - 10;
+    draw(...border); doc.setLineWidth(0.15); doc.line(margin, fy - 3, PW - margin, fy - 3);
+    font(6.5, "normal", muted);
+    doc.text("System-generated receipt. Deductions subject to administrative review.", PW / 2, fy + 1, { align: "center" });
+    doc.text("Mediclaim Portal · SHA-256 Verified", margin, fy + 6);
+    doc.text("Page 1 of 1", PW - margin, fy + 6, { align: "right" });
 
-    // Save PDF
-    doc.save(`Enrollment_Receipt_${submission.userName || 'User'}_FY${activeFY?.name || 'Unknown'}.pdf`);
+    doc.save(`Enrollment_${submission.userName ?? "User"}_FY${activeFY?.name ?? "Unknown"}.pdf`);
 };

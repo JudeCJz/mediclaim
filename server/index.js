@@ -50,9 +50,9 @@ app.use(express.json());
 
 // Rate limit all auth requests
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // limit each IP to 20 requests per windowMs
-  message: { msg: 'Too many requests from this IP, please try again after 15 minutes' },
+  windowMs: 30 * 1000, // 30 seconds
+  max: 100, // limit each IP to 100 requests per 30 seconds
+  message: { msg: 'Too many requests from this IP, please try again after 30 seconds' },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -67,7 +67,7 @@ app.use('/api/claims', require('./routes/claims'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/financialYears', require('./routes/financialYears'));
 app.use('/api/logs', require('./routes/logs'));
-app.use('/api/mail', require('./routes/mail'));
+app.use('/api/mail', require('./routes/mail').router);
 
 // Expose io to routes
 app.set('io', io);

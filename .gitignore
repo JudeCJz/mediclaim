@@ -29,3 +29,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local database and caches
+mongodb_data/
+.npm

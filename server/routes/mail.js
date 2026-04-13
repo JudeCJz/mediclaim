@@ -194,4 +194,184 @@ router.post('/announce-cycle', adminAuth, async (req, res) => {
     }
 });
 
-module.exports = router;
+const EmailTemplate = require('../models/EmailTemplate');
+
+// Seed default "Early Bird" template if none exist
+const seedDefaultTemplate = async () => {
+    try {
+        const count = await EmailTemplate.countDocuments();
+        if (count === 0) {
+            await EmailTemplate.create({
+                name: 'Early Enrollment Push',
+                subject: 'ACTION REQUIRED: FY {{fyName}} Mediclaim Registration Open',
+                html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
+                        <h2>Mediclaim Portal Open</h2>
+                        <p>Dear {{userName}},</p>
+                        <p>This is a gentle reminder that the medical premium coverage portal for <b>FY {{fyName}}</b> is now active.</p>
+                        <p>Ensure you log in to select your coverage (Current: {{coverageId}}) before the rush. Adding dependents early gives HR enough time to verify their documents smoothly without delaying your final ID card processing.</p>
+                        <p>Regards,<br>Institutional Administration</p>
+                      </div>`
+            });
+            console.log('Default Early Enrollment template injected.');
+        }
+    } catch (e) {
+        console.error('Failed to seed default email template:', e);
+    }
+};
+
+setTimeout(seedDefaultTemplate, 5000); // Wait for DB connection
+
+// Manage Custom Templates
+router.get('/templates', adminAuth, async (req, res) => {
+  try {
+    const templates = await EmailTemplate.find().sort({ createdAt: -1 });
+    res.json(templates);
+  } catch (err) {
+    res.status(500).json({ msg: 'Failed to fetch templates' });
+  }
+});
+
+router.post('/templates', adminAuth, async (req, res) => {
+  const { name, subject, html } = req.body;
+  try {
+    const newTemplate = new EmailTemplate({ name, subject, html });
+    await newTemplate.save();
+    res.status(201).json(newTemplate);
+  } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ msg: 'Template name already exists' });
+    res.status(500).json({ msg: 'Failed to save template' });
+  }
+});
+
+router.delete('/templates/:id', adminAuth, async (req, res) => {
+  try {
+    await EmailTemplate.findByIdAndDelete(req.params.id);
+    res.json({ msg: 'Template deleted' });
+  } catch (err) {
+    res.status(500).json({ msg: 'Failed to delete template' });
+  }
+});
+
+// Dispatch Custom Template
+router.post('/dispatch-custom', adminAuth, async (req, res) => {
+  const { fyId, templateId } = req.body;
+  if (!fyId || !templateId) return res.status(400).json({ msg: 'fyId and templateId required' });
+
+  try {
+    const template = await EmailTemplate.findById(templateId);
+    if (!template) return res.status(404).json({ msg: 'Template not found' });
+
+    const submissions = await Claim.find({ fyId, archived: { $ne: true } });
+    if (!submissions.length) return res.json({ message: 'No recipients found' });
+
+    const results = [];
+    for (const claim of submissions) {
+      let finalHtml = template.html
+        .replace(/{{userName}}/g, claim.userName)
+        .replace(/{{fyName}}/g, claim.fyName)
+        .replace(/{{email}}/g, claim.email)
+        .replace(/{{coverageId}}/g, claim.coverageId);
+        
+      let finalSubject = template.subject
+        .replace(/{{userName}}/g, claim.userName)
+        .replace(/{{fyName}}/g, claim.fyName);
+
+      results.push(await sendMail({
+        to: [claim.email],
+        subject: finalSubject,
+        html: finalHtml
+      }));
+    }
+
+    res.json({ message: `Sent ${submissions.length} emails`, results });
+  } catch (err) {
+    res.status(500).json({ msg: 'Failed to send custom emails' });
+  }
+});
+
+// CRON JOB logic - Deadline checker & 48 Hour Warnings
+const checkDeadlinesAndSendMail = async () => {
+    try {
+        const today = new Date();
+        const activeFYs = await FinancialYear.find({ enabled: true });
+        
+        for (const fy of activeFYs) {
+            if (fy.lastSubmissionDate) {
+                const deadline = new Date(fy.lastSubmissionDate);
+                const hrs48 = 48 * 60 * 60 * 1000;
+                
+                // --- 48 HOUR WARNING LOGIC ---
+                if (!fy.warning48hEmailSent && (deadline - today <= hrs48) && (deadline - today > 0)) {
+                    const allFaculty = await User.find({ role: { $in: ['faculty', 'hod'] }, status: 'active' });
+                    const submissions = await Claim.find({ fyId: fy._id, archived: { $ne: true } });
+                    const enrolledEmails = submissions.map(s => s.email);
+                    
+                    for (const faculty of allFaculty) {
+                        if (!faculty.email) continue;
+                        const hasEnrolled = enrolledEmails.includes(faculty.email);
+                        try {
+                            if (hasEnrolled) {
+                                await sendMail({
+                                    to: faculty.email,
+                                    subject: `[FINAL CHECK] 48 Hours Left: FY ${fy.name}`,
+                                    html: `<div style="font-family: Arial, sans-serif; padding: 20px;">
+                                           <h2 style="color: #f59e0b;">Final Review Window</h2>
+                                           <p>Dear ${faculty.name},</p>
+                                           <p>Only 48 hours remain for the FY ${fy.name} cycle. Since you have successfully enrolled, we kindly request you log in one last time to double-check your provided dependent data.</p>
+                                           <p>Ensure names and DOBs exactly match official documents to prevent claim rejection.</p>
+                                           </div>`
+                                });
+                            } else {
+                                await sendMail({
+                                    to: faculty.email,
+                                    subject: `[URGENT] 48 Hours Left to Enroll: FY ${fy.name}`,
+                                    html: `<div style="font-family: Arial, sans-serif; padding: 20px; border-left: 4px solid #ef4444;">
+                                           <h2 style="color: #ef4444;">Missing Enrollment</h2>
+                                           <p>Dear ${faculty.name},</p>
+                                           <p>Only 48 hours remain for the FY ${fy.name} cycle and our records show you have <b>NOT YET ENROLLED</b>.</p>
+                                           <p>Failure to enroll before the deadline will result in complete loss of institutional medical coverage for this year.</p>
+                                           </div>`
+                                });
+                            }
+                        } catch(e) { console.error('48H Warn Mail Error', e); }
+                    }
+                    fy.warning48hEmailSent = true;
+                    await fy.save();
+                    console.log(`Automated 48H warning emails sent for FY ${fy.name}`);
+                }
+
+                // --- DEADLINE REACHED LOGIC ---
+                if (today > deadline && !fy.deadlineEmailSent) {
+                    const submissions = await Claim.find({ fyId: fy._id, archived: { $ne: true } });
+                    for(const claim of submissions) {
+                        try {
+                            await sendMail({
+                                to: claim.email,
+                                subject: `[DEADLINE REACHED] Mediclaim FY ${fy.name} Closed`,
+                                html: `
+                                    <div style="font-family: 'Segoe UI', Arial, sans-serif; padding: 30px; border: 1px solid #e0e0e0; border-top: 5px solid #ef4444; max-width: 600px;">
+                                        <h2 style="color: #ef4444;">Enrollment Deadline Reached</h2>
+                                        <p>Dear ${claim.userName},</p>
+                                        <p>The enrollment deadline for FY ${fy.name} has officially passed. Your currently submitted coverage plan (<b>${claim.coverageId}</b>) is now locked and will be processed.</p>
+                                        <p>Please contact HR if you require emergency modifications.</p>
+                                    </div>
+                                `
+                            });
+                        } catch(e) { console.error('Automated deadline mail error', e); }
+                    }
+                    fy.deadlineEmailSent = true;
+                    await fy.save();
+                    console.log(`Automated deadline emails sent for FY ${fy.name}`);
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Error in checkDeadlinesAndSendMail:', err);
+    }
+};
+
+// Start checking every 12 hours
+setInterval(checkDeadlinesAndSendMail, 12 * 60 * 60 * 1000);
+setTimeout(checkDeadlinesAndSendMail, 10000); // Check soon after boot
+
+module.exports = { router, sendMail };
