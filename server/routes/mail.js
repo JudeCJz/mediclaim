@@ -373,9 +373,13 @@ router.post('/dispatch-custom', adminAuth, async (req, res) => {
 
   try {
     let template = null;
-    if (templateId && templateId !== 'blank') {
-      template = await EmailTemplate.findById(templateId);
-      if (!template && !htmlOverride) return res.status(404).json({ msg: 'Template not found' });
+    if (templateId && templateId !== 'blank' && templateId !== 'undefined') {
+        try {
+            template = await EmailTemplate.findById(templateId);
+            if (!template && !htmlOverride) return res.status(404).json({ msg: 'Template not found' });
+        } catch (dbErr) {
+            console.warn('Invalid template ID:', templateId);
+        }
     }
 
     let recipients = [];
@@ -428,7 +432,7 @@ router.post('/dispatch-custom', adminAuth, async (req, res) => {
     res.json({ message: `Dispatch Complete: ${sentCount} sent, ${failedCount} failed.` });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ msg: 'Failed to send custom emails' });
+    res.status(500).json({ msg: err.message || 'Failed to send custom emails' });
   }
 });
 
