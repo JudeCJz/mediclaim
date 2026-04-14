@@ -791,7 +791,7 @@ const AdminDashboard = () => {
                                                     });
                                                     setAlertConfig({ title: 'EMAILS SENT', text: res.data.message });
                                                 } catch (err) {
-                                                    setAlertConfig({ title: 'SEND FAILED', type: 'danger', text: 'System failed to process batch mailing.' });
+                                                    setAlertConfig({ title: 'SEND FAILED', type: 'danger', text: err.response?.data?.msg || err.message || 'System failed to process batch mailing.' });
                                                 } finally { setIsMailing(false); }
                                             }
                                         });
