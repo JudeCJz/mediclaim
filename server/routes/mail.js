@@ -68,41 +68,54 @@ const sendMail = async ({ to, subject, html }) => {
   if (resend) {
     try {
       console.log('Dispatching via RESEND API...');
-      const { data, error } = await resend.emails.send({
-        from: process.env.SMTP_FROM || 'onboarding@resend.dev',
-        to: recipients,
-        subject,
-        html,
-      });
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('RESEND_TIMEOUT')), 25000));
+      
+      const { data, error } = await Promise.race([
+        resend.emails.send({
+          from: process.env.SMTP_FROM_RESEND || 'onboarding@resend.dev',
+          to: recipients,
+          subject,
+          html,
+        }),
+        timeoutPromise
+      ]);
 
       if (error) throw error;
       return { accepted: [to], response: 'Success via Resend' };
     } catch (apiErr) {
       console.error('RESEND API FAILURE:', apiErr.message);
-      // Fall through to SMTP if allowed
+      if (apiErr.message === 'RESEND_TIMEOUT') throw new Error('Mail provider timed out. Check API key.');
+      // Fall through to SMTP if not a timeout
     }
   }
 
-  // OPTION 2: NODEMAILER SMTP (FALLBACK)
+  // OPTION 3: NODEMAILER SMTP (FALLBACK)
   const transporter = await getTransporter();
   if (!transporter) {
     throw new Error('MAIL_NOT_CONFIGURED: No API Key or SMTP credentials found.');
   }
 
   try {
-    const info = await transporter.sendMail({
-      from: process.env.SMTP_FROM,
-      to: recipients.join(', '),
-      subject,
-      html
-    });
+    console.log('Dispatching via SMTP...');
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP_TIMEOUT')), 25000));
+
+    const info = await Promise.race([
+      transporter.sendMail({
+        from: process.env.SMTP_FROM,
+        to: recipients.join(', '),
+        subject,
+        html
+      }),
+      timeoutPromise
+    ]);
 
     return {
       accepted: info.accepted,
       rejected: info.rejected
     };
   } catch (err) {
-    console.error('Nodemailer sendMail Error:', err.message);
+    console.error('Mailing Error:', err.message);
+    if (err.message === 'SMTP_TIMEOUT') throw new Error('SMTP connection timed out. Port 587 is likely blocked on this host.');
     throw err;
   }
 };
