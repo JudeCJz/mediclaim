@@ -1,10 +1,15 @@
 const express = require('express');
+const { Resend } = require('resend');
+
 const router = express.Router();
 const { auth, adminAuth } = require('../middleware/auth');
 const Claim = require('../models/Claim');
 const User = require('../models/User');
 const FinancialYear = require('../models/FinancialYear');
 const EmailTemplate = require('../models/EmailTemplate');
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
 
 const getTransporter = async () => {
   const {
@@ -57,13 +62,31 @@ const getTransporter = async () => {
 };
 
 const sendMail = async ({ to, subject, html }) => {
-  const transporter = await getTransporter();
   const recipients = Array.isArray(to) ? to : [to];
 
+  // OPTION 1: RESEND API (HIGHEST RELIABILITY FOR RENDER)
+  if (resend) {
+    try {
+      console.log('Dispatching via RESEND API...');
+      const { data, error } = await resend.emails.send({
+        from: process.env.SMTP_FROM || 'onboarding@resend.dev',
+        to: recipients,
+        subject,
+        html,
+      });
+
+      if (error) throw error;
+      return { accepted: [to], response: 'Success via Resend' };
+    } catch (apiErr) {
+      console.error('RESEND API FAILURE:', apiErr.message);
+      // Fall through to SMTP if allowed
+    }
+  }
+
+  // OPTION 2: NODEMAILER SMTP (FALLBACK)
+  const transporter = await getTransporter();
   if (!transporter) {
-    const error = new Error('SMTP_NOT_CONFIGURED: Missing email environment variables on the server.');
-    console.error(error.message);
-    throw error;
+    throw new Error('MAIL_NOT_CONFIGURED: No API Key or SMTP credentials found.');
   }
 
   try {
@@ -79,10 +102,7 @@ const sendMail = async ({ to, subject, html }) => {
       rejected: info.rejected
     };
   } catch (err) {
-    console.error('Nodemailer sendMail Error:');
-    console.error('  code   :', err.code);
-    console.error('  message:', err.message);
-    console.error('  response:', err.response);
+    console.error('Nodemailer sendMail Error:', err.message);
     throw err;
   }
 };
