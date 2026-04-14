@@ -50,12 +50,17 @@ const getTransporter = async () => {
   });
 
   // Verify SMTP connection before returning — error will surface in logs
-  try {
-    await transporter.verify();
-    console.log('SMTP connection verified successfully.');
-  } catch (verifyErr) {
-    console.error('SMTP VERIFY FAILED:', verifyErr.code, verifyErr.message);
-    throw verifyErr;
+  // In production hosted environments (like Render), verify() can hang infinitely if port is blocked.
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      const verifyPromise = transporter.verify();
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP_VERIFY_TIMEOUT')), 10000));
+      await Promise.race([verifyPromise, timeoutPromise]);
+      console.log('SMTP connection verified successfully.');
+    } catch (verifyErr) {
+      console.error('SMTP VERIFY FAILED or TIMED OUT:', verifyErr.message);
+      // We don't throw here so sendMail can at least try to execute, or fail with its own timeout.
+    }
   }
 
   return transporter;
@@ -84,8 +89,10 @@ const sendMail = async ({ to, subject, html }) => {
       return { accepted: [to], response: 'Success via Resend' };
     } catch (apiErr) {
       console.error('RESEND API FAILURE:', apiErr.message);
-      if (apiErr.message === 'RESEND_TIMEOUT') throw new Error('Mail provider timed out. Check API key.');
-      // Fall through to SMTP if not a timeout
+      if (apiErr.message === 'RESEND_TIMEOUT') {
+        throw new Error('Mail provider timed out. Check API key or network.');
+      }
+      throw new Error(`Resend Error: ${apiErr.message}`);
     }
   }
 
