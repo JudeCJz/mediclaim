@@ -4,6 +4,7 @@ const { auth, adminAuth } = require('../middleware/auth');
 const Claim = require('../models/Claim');
 const User = require('../models/User');
 const FinancialYear = require('../models/FinancialYear');
+const EmailTemplate = require('../models/EmailTemplate');
 
 const getTransporter = async () => {
   const {
@@ -267,7 +268,7 @@ router.post('/dispatch-reminder', adminAuth, async (req, res) => {
     }
 });
 
-const EmailTemplate = require('../models/EmailTemplate');
+
 
 // Seed default "Early Bird" template if none exist
 const seedDefaultTemplate = async () => {
@@ -327,37 +328,66 @@ router.delete('/templates/:id', adminAuth, async (req, res) => {
 
 // Dispatch Custom Template
 router.post('/dispatch-custom', adminAuth, async (req, res) => {
-  const { fyId, templateId } = req.body;
-  if (!fyId || !templateId) return res.status(400).json({ msg: 'fyId and templateId required' });
+  const { fyId, templateId, userIds, subject: subjectOverride, html: htmlOverride } = req.body;
+  if (!templateId && !htmlOverride) return res.status(400).json({ msg: 'templateId or html required' });
 
   try {
-    const template = await EmailTemplate.findById(templateId);
-    if (!template) return res.status(404).json({ msg: 'Template not found' });
-
-    const submissions = await Claim.find({ fyId, archived: { $ne: true } });
-    if (!submissions.length) return res.json({ message: 'No recipients found' });
-
-    const results = [];
-    for (const claim of submissions) {
-      let finalHtml = template.html
-        .replace(/{{userName}}/g, claim.userName)
-        .replace(/{{fyName}}/g, claim.fyName)
-        .replace(/{{email}}/g, claim.email)
-        .replace(/{{coverageId}}/g, claim.coverageId);
-        
-      let finalSubject = template.subject
-        .replace(/{{userName}}/g, claim.userName)
-        .replace(/{{fyName}}/g, claim.fyName);
-
-      results.push(await sendMail({
-        to: [claim.email],
-        subject: finalSubject,
-        html: finalHtml
-      }));
+    let template = null;
+    if (templateId && templateId !== 'blank') {
+      template = await EmailTemplate.findById(templateId);
+      if (!template && !htmlOverride) return res.status(404).json({ msg: 'Template not found' });
     }
 
-    res.json({ message: `Sent ${submissions.length} emails`, results });
+    let recipients = [];
+    if (userIds && Array.isArray(userIds)) {
+        recipients = await User.find({ _id: { $in: userIds } });
+    } else if (fyId) {
+        // Legacy/Batch by FY
+        const submissions = await Claim.find({ fyId, archived: { $ne: true } });
+        const submissionEmails = submissions.map(s => s.email);
+        recipients = await User.find({ email: { $in: submissionEmails } });
+    }
+
+    if (!recipients.length) return res.json({ message: 'No recipients found' });
+
+    let fy = null;
+    if (fyId) fy = await FinancialYear.findById(fyId);
+
+    let sentCount = 0;
+    let failedCount = 0;
+    for (const user of recipients) {
+      try {
+        // Try to find a claim for variables, else use User defaults
+        const claim = fyId ? await Claim.findOne({ email: user.email, fyId, archived: { $ne: true } }) : null;
+        
+        const sourceHtml = htmlOverride || template?.html || '';
+        const sourceSubject = subjectOverride || template?.subject || '';
+
+        let finalHtml = sourceHtml
+          .replace(/{{userName}}/g, user.name || 'Staff Member')
+          .replace(/{{fyName}}/g, fy?.name || 'Current')
+          .replace(/{{email}}/g, user.email)
+          .replace(/{{coverageId}}/g, claim?.coverageId || 'N/A');
+          
+        let finalSubject = sourceSubject
+          .replace(/{{userName}}/g, user.name || 'Staff Member')
+          .replace(/{{fyName}}/g, fy?.name || 'Current');
+
+        await sendMail({
+          to: [user.email],
+          subject: finalSubject,
+          html: finalHtml
+        });
+        sentCount++;
+      } catch (e) {
+        console.error(`Failed to send email to ${user.email}:`, e);
+        failedCount++;
+      }
+    }
+
+    res.json({ message: `Dispatch Complete: ${sentCount} sent, ${failedCount} failed.` });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ msg: 'Failed to send custom emails' });
   }
 });

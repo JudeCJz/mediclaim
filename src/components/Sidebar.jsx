@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { LayoutDashboard, History, LogOut, Sun, Moon, Menu, X, Settings as SettingsIcon, FileText, Users } from 'lucide-react';
+import { LayoutDashboard, History, LogOut, Sun, Moon, Menu, X, Settings as SettingsIcon, FileText, Users, Mail } from 'lucide-react';
 
 import logo from '../assets/logo.png';
 import DefaultRoleAvatar from './DefaultRoleAvatar';
@@ -80,6 +80,9 @@ const Sidebar = () => {
               <button onClick={() => handleTabClick('recruit')} className={isTabActive('recruit') ? "sidebar-item sidebar-item-active" : "sidebar-item"}>
                 <Users size={15} /> Faculty Management
               </button>
+              <button onClick={() => handleTabClick('mail')} className={isTabActive('mail') ? "sidebar-item sidebar-item-active" : "sidebar-item"}>
+                <Mail size={15} /> Communications
+              </button>
             </>
           )}
 
@@ -131,7 +134,7 @@ const Sidebar = () => {
             marginTop: '0.25rem',
             borderTop: '0.5px solid var(--border-color)',
           }}>
-            <DefaultRoleAvatar role={user?.role} name={user?.name} size={28} />
+            <DefaultRoleAvatar role={user?.role} name={user?.name} seed={user?.email} size={28} />
             <div style={{ overflow: 'hidden' }}>
               <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {user?.name || 'User'}

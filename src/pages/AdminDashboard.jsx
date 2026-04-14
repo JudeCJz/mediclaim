@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
 import api from '../api';
+import DefaultRoleAvatar from '../components/DefaultRoleAvatar';
 import { ShieldCheck, Plus, X, Edit, Mail, Info, Send, Save, UserMinus, Key, ShieldAlert, CheckCircle, Clock, Heart, User, Phone, Briefcase, BarChart3, Activity, ArrowRight, Lock, Unlock, Search, Trash2, Users, Download, FileText, Settings, Loader2, AlertTriangle, Megaphone } from 'lucide-react';
 
 const AdminDashboard = () => {
-    const { activeFY, activeTab, isDemoMode, DEMO_FACULTY, socket } = useApp();
+    const { activeFY, activeTab, setActiveTab, isDemoMode, DEMO_FACULTY, socket } = useApp();
     const [years, setYears] = useState([]);
     const [submissions, setSubmissions] = useState([]);
     const [faculty, setFaculty] = useState([]);
@@ -28,11 +29,53 @@ const AdminDashboard = () => {
     const [manualPass, setManualPass] = useState({ next: '', confirm: '' });
     const [showManualPass, setShowManualPass] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
+    const [mailDropdownAnchor, setMailDropdownAnchor] = useState(null);
+
+    const systemTemplates = [
+        { id: 'remind-early', name: 'Early Bird Alert', subject: '[ACTION] Enrollment Open: FY {{fyName}}', html: '<h2>Enrollment is Live!</h2><p>Dear {{userName}}, the portal is now open for FY {{fyName}}. Please log in to secure your coverage early.</p>' },
+        { id: 'remind-urgent', name: 'Urgent Deadline (48h)', subject: '[URGENT] 48 Hours Left: FY {{fyName}}', html: '<h2>Missing Enrollment!</h2><p>Dear {{userName}}, only 48 hours remain to enroll for FY {{fyName}}. Failure to act will result in loss of coverage.</p>' },
+        { id: 'policy-update', name: 'Policy Update Notice', subject: 'Important: Policy Updates for FY {{fyName}}', html: '<h2>Updates to your Policy</h2><p>Dear {{userName}}, we have updated the coverage options for FY {{fyName}}. Please review them in the portal.</p>' }
+    ];
     const [isBulkProcessing, setIsBulkProcessing] = useState(false);
     const [quickResetEmail, setQuickResetEmail] = useState('');
 
     const [editingFYId, setEditingFYId] = useState(null);
     const [facultySearch, setFacultySearch] = useState('');
+    const [mailFilters, setMailFilters] = useState({
+        fyId: activeFY?._id || '',
+        audience: 'all',
+        excludeDisabled: true
+    });
+    const [mailDraft, setMailDraft] = useState({ subject: '', html: '', name: '' });
+
+    useEffect(() => {
+        if (!selectedTemplateId) {
+            setMailDraft({ subject: '', html: '', name: '' });
+            return;
+        }
+        const t = systemTemplates.find(st => st.id === selectedTemplateId) || templates.find(ut => ut._id === selectedTemplateId);
+        if (t) {
+            setMailDraft({ subject: t.subject || '', html: t.html || '', name: t.name || '' });
+        }
+    }, [selectedTemplateId, templates]);
+
+    const getTargetAudience = () => {
+        let list = [...faculty];
+        if (mailFilters.excludeDisabled) {
+            list = list.filter(f => f.status !== 'disabled');
+        }
+
+        if (mailFilters.fyId) {
+            const fySubmissions = (submissions || []).filter(s => s.fyId === mailFilters.fyId);
+            if (mailFilters.audience === 'enrolled') {
+                list = list.filter(f => fySubmissions.some(s => s.email === f.email));
+            } else if (mailFilters.audience === 'pending') {
+                list = list.filter(f => !fySubmissions.some(s => s.email === f.email));
+            }
+        }
+
+        return list;
+    };
     const [newFY, setNewFY] = useState({
         name: '2026-2027',
         lastSubmissionDate: '',
@@ -156,16 +199,18 @@ const AdminDashboard = () => {
             fetchData();
         } catch (e) { }
     };
-    const dispatchCustomMails = async () => {
-        if (!selectedTemplateId) return alert('Please select a template to send.');
+     const dispatchCustomMails = async (templateIdOverride) => {
+        const tId = templateIdOverride || selectedTemplateId;
+        if (!tId) return alert('Please select a template to send.');
         if (!selectedFyForMail) return;
         setIsMailing(true);
         try {
             const res = await api.post('/mail/dispatch-custom', {
                 fyId: selectedFyForMail._id || selectedFyForMail.id,
-                templateId: selectedTemplateId
+                templateId: tId
             });
             setShowTemplateModal(false);
+            setMailDropdownAnchor(null);
             setTimeout(() => setAlertConfig({ title: 'EMAILS DISPATCHED', text: res.data.message }), 500);
         } catch (err) {
             setAlertConfig({ title: 'ERROR', type: 'danger', text: 'Failed to dispatch custom emails.' });
@@ -553,6 +598,212 @@ const AdminDashboard = () => {
                     </div>
                 </div>
             )}
+             {activeTab === 'mail' && (
+                <div className="glass-panel" style={{ padding: 'clamp(1rem, 3vw, 2.5rem)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '1.5rem' }}>
+                        <div>
+                            <h2 style={{ fontWeight: 900, fontSize: '1.8rem', display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                <Megaphone color="var(--primary)" size={30} /> Email Center
+                            </h2>
+                            <p style={{ color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem', marginTop: '5px' }}>Automated Campus-Wide Messaging Hub</p>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '2.5rem' }}>
+                        {/* Filters Card */}
+                        <div className="glass-panel" style={{ padding: '2rem', background: 'rgba(255,255,255,0.02)' }}>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 900, marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <Settings size={18} /> Select Recipients
+                            </h3>
+
+                            <div className="f-group-premium" style={{ marginBottom: '1.5rem' }}>
+                                <label>Target Session cycle</label>
+                                <select className="glass-panel" style={{ width: '100%', padding: '1rem' }} value={mailFilters.fyId} onChange={e => setMailFilters({ ...mailFilters, fyId: e.target.value })}>
+                                    <option value="">Global (All Records)</option>
+                                    {years.map(y => <option key={y._id} value={y._id}>FY {y.name} {y.enabled ? '(Active)' : ''}</option>)}
+                                </select>
+                            </div>
+
+                            <div className="f-group-premium" style={{ marginBottom: '1.5rem' }}>
+                                <label>Enrollment Status</label>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+                                    {['all', 'enrolled', 'pending'].map(opt => (
+                                        <button 
+                                            key={opt}
+                                            className="btn btn-ghost" 
+                                            style={{ 
+                                                fontSize: '0.7rem', 
+                                                fontWeight: 900, 
+                                                background: mailFilters.audience === opt ? 'var(--primary)' : 'transparent',
+                                                color: mailFilters.audience === opt ? 'white' : 'inherit',
+                                                border: mailFilters.audience === opt ? '1px solid var(--primary)' : '1px solid var(--border-glass)'
+                                            }}
+                                            onClick={() => setMailFilters({ ...mailFilters, audience: opt })}
+                                        >
+                                            {opt.toUpperCase()}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', padding: '1rem', background: 'rgba(0,0,0,0.1)', borderRadius: '10px' }}>
+                                <input type="checkbox" checked={mailFilters.excludeDisabled} onChange={e => setMailFilters({ ...mailFilters, excludeDisabled: e.target.checked })} style={{ width: '18px', height: '18px' }} />
+                                <span style={{ fontSize: '0.85rem', fontWeight: 900 }}>Exclude Disabled Accounts</span>
+                            </label>
+
+                            <div style={{ marginTop: '2.5rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                    <div style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--primary)', letterSpacing: '1px' }}>TARGET AUDIENCE ({getTargetAudience().length})</div>
+                                    <div style={{ fontSize: '0.65rem', fontWeight: 800, opacity: 0.5 }}>ACTIVE PREVIEW</div>
+                                </div>
+                                <div className="glass-panel" style={{ maxHeight: '350px', overflowY: 'auto', padding: '0.5rem', background: 'rgba(0,0,0,0.02)', border: '1px dashed var(--border-glass)' }}>
+                                    {getTargetAudience().length === 0 ? (
+                                        <div style={{ padding: '2rem', textAlign: 'center', opacity: 0.4, fontSize: '0.8rem', fontWeight: 700 }}>
+                                            No members match these filters
+                                        </div>
+                                    ) : (
+                                        getTargetAudience().map(target => (
+                                            <div key={target._id || target.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.75rem', borderBottom: '1px solid rgba(0,0,0,0.05)', lastChild: { borderBottom: 'none' } }}>
+                                                <DefaultRoleAvatar role={target.role} name={target.name} seed={target.email} size={32} />
+                                                <div style={{ overflow: 'hidden' }}>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{target.name}</div>
+                                                    <div style={{ fontSize: '0.7rem', opacity: 0.6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{target.email}</div>
+                                                </div>
+                                                <div style={{ marginLeft: 'auto' }}>
+                                                    <span style={{ fontSize: '0.55rem', fontWeight: 900, padding: '2px 8px', borderRadius: '20px', background: target.status === 'active' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: target.status === 'active' ? '#22c55e' : '#ef4444' }}>
+                                                        {target.status?.toUpperCase()}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Template Card */}
+                        <div className="glass-panel" style={{ padding: '2rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+                                <h3 style={{ fontSize: '1rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <Mail size={18} /> Compose Email
+                                </h3>
+                            </div>
+
+                            <div className="f-group-premium" style={{ marginBottom: '1.5rem' }}>
+                                <label>Selection Template</label>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <select className="glass-panel" style={{ flex: 1, padding: '1rem' }} value={selectedTemplateId} onChange={e => setSelectedTemplateId(e.target.value)}>
+                                        <option value="">-- Start from Blank Draft --</option>
+                                        <optgroup label="System Presets">
+                                            {systemTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                                        </optgroup>
+                                        <optgroup label="Saved Presets">
+                                            {templates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                                        </optgroup>
+                                    </select>
+                                    {selectedTemplateId && !systemTemplates.some(st => st.id === selectedTemplateId) && (
+                                        <button className="btn btn-ghost" style={{ padding: '0 1rem', color: '#ef4444', border: '1px solid currentColor' }} onClick={() => {
+                                            deleteCustomTemplate(selectedTemplateId);
+                                            setSelectedTemplateId('');
+                                            setMailDraft({ subject: '', html: '', name: '' });
+                                        }}>
+                                            <Trash2 size={16} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="animate-pop" style={{ display: 'grid', gap: '1rem' }}>
+                                <div className="f-group-premium">
+                                    <label>Preset Draft Name (For Saving)</label>
+                                    <input 
+                                        type="text" 
+                                        className="glass-panel" 
+                                        style={{ width: '100%', padding: '1rem', fontWeight: 700 }} 
+                                        value={mailDraft.name} 
+                                        onChange={e => setMailDraft({ ...mailDraft, name: e.target.value })} 
+                                        placeholder="e.g. Critical Update Preset"
+                                    />
+                                </div>
+                                <div className="f-group-premium">
+                                    <label>Email Subject</label>
+                                    <input 
+                                        type="text" 
+                                        className="glass-panel" 
+                                        style={{ width: '100%', padding: '1rem', fontWeight: 700 }} 
+                                        value={mailDraft.subject} 
+                                        onChange={e => setMailDraft({ ...mailDraft, subject: e.target.value })} 
+                                        placeholder="e.g. Critical Update: {{fyName}} Cycle"
+                                    />
+                                </div>
+                                <div className="f-group-premium">
+                                    <label>Email Content (HTML Supported)</label>
+                                    <textarea 
+                                        className="glass-panel" 
+                                        style={{ width: '100%', padding: '1rem', minHeight: '250px', fontFamily: 'monospace', fontSize: '0.8rem', lineHeight: 1.6 }} 
+                                        value={mailDraft.html} 
+                                        onChange={e => setMailDraft({ ...mailDraft, html: e.target.value })} 
+                                        placeholder="<p>Hello {{userName}}...</p>"
+                                    />
+                                </div>
+                                <div style={{ fontSize: '0.65rem', fontWeight: 800, opacity: 0.5, borderTop: '1px dashed var(--border-glass)', paddingTop: '1rem' }}>
+                                    AVAILABLE_TOKENS: <code>{`{{userName}}`}</code>, <code>{`{{fyName}}`}</code>, <code>{`{{email}}`}</code>, <code>{`{{coverageId}}`}</code>
+                                </div>
+                            </div>
+
+                            <div style={{ marginTop: '2.5rem', display: 'flex', gap: '1rem' }}>
+                                {selectedTemplateId && (
+                                    <button 
+                                        className="btn btn-ghost" 
+                                        style={{ flex: 1, color: 'var(--primary)', borderColor: 'var(--primary)' }}
+                                        onClick={async () => {
+                                            if (!mailDraft.subject || !mailDraft.html) return;
+                                            await api.post('/mail/templates', {
+                                                name: `${mailDraft.name} (Copy)`,
+                                                subject: mailDraft.subject,
+                                                html: mailDraft.html
+                                            });
+                                            await fetchData(); // Refresh templates from backend
+                                            setAlertConfig({ title: 'PRESET SAVED', text: 'Draft has been added to your permanent presets.' });
+                                        }}
+                                    >
+                                        <Save size={16} /> SAVE_AS_NEW
+                                    </button>
+                                )}
+                                <button 
+                                    className="btn btn-primary" 
+                                    style={{ flex: 2, padding: '1rem', background: 'var(--primary)', boxShadow: '0 10px 30px -10px var(--primary-glow)' }}
+                                    disabled={!mailDraft.html || getTargetAudience().length === 0 || isMailing}
+                                    onClick={() => {
+                                        setAlertConfig({
+                                            title: 'INITIATE CAMPAIGN',
+                                            type: 'primary',
+                                            text: `You are about to send this customized email to ${getTargetAudience().length} members. Send now?`,
+                                            onConfirm: async () => {
+                                                setIsMailing(true);
+                                                try {
+                                                    const res = await api.post('/mail/dispatch-custom', {
+                                                        templateId: selectedTemplateId, // Still pass ID for reference if exists
+                                                        subject: mailDraft.subject,
+                                                        html: mailDraft.html,
+                                                        userIds: getTargetAudience().map(f => f._id || f.id),
+                                                        fyId: mailFilters.fyId
+                                                    });
+                                                    setAlertConfig({ title: 'EMAILS SENT', text: res.data.message });
+                                                } catch (err) {
+                                                    setAlertConfig({ title: 'SEND FAILED', type: 'danger', text: 'System failed to process batch mailing.' });
+                                                } finally { setIsMailing(false); }
+                                            }
+                                        });
+                                    }}
+                                >
+                                    {isMailing ? <Loader2 className="animate-spin" /> : <><Send size={18} /> Send Emails</>}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
             {activeTab === 'years' && (
                 <div style={{ display: 'grid', gap: '2.5rem' }}>
                     <div className="glass-panel" style={{ padding: 'clamp(1rem, 3vw, 2.2rem)', width: '100%' }}>
@@ -580,7 +831,7 @@ const AdminDashboard = () => {
                                 <Settings size={22} color="var(--primary)" /> Active Enrollment Cycles
                             </h2>
                             <button className="btn btn-primary" onClick={openCreate} style={{ padding: '0.6rem 1rem', fontSize: '12px', fontWeight: 900, boxShadow: '0 8px 20px -5px var(--primary-glow)' }}>
-                                <Plus size={16} /> INITIALIZE SESSION
+                                <Plus size={16} /> Create New Cycle
                             </button>
                         </div>
 
@@ -788,7 +1039,16 @@ const AdminDashboard = () => {
                                             <div style={{ fontWeight: 900, fontSize: '0.85rem' }}>{fy.claims.length} SUBMISSIONS</div>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                                            <button className="btn btn-ghost" style={{ width: '40px', height: '40px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--primary)', color: 'var(--primary)', background: 'rgba(59, 130, 246, 0.1)' }} onClick={(e) => { e.stopPropagation(); setSelectedFyForMail(fy); setShowTemplateModal(true); }} title="Send template emails to this cycle">
+                                            <button 
+                                                className="btn btn-ghost" 
+                                                style={{ width: '40px', height: '40px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--primary)', color: 'var(--primary)', background: 'rgba(59, 130, 246, 0.1)' }} 
+                                                onClick={(e) => { 
+                                                    e.stopPropagation(); 
+                                                    setMailFilters({ fyId: fy._id || fy.id, audience: 'all', excludeDisabled: true });
+                                                    setActiveTab('mail'); 
+                                                }} 
+                                                title="Compose emails for this cycle"
+                                            >
                                                 <Mail size={16} />
                                             </button>
                                             <button className="btn btn-ghost" style={{ width: '40px', height: '40px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border-glass)' }} onClick={(e) => { e.stopPropagation(); exportCSV(fy._id, fy.name); }} title="Export this cycle">
@@ -931,8 +1191,9 @@ const AdminDashboard = () => {
                                                         {expandedFolders[`unreg_${fy._id || fy.id}`] && (
                                                             <div className="responsive-auto-grid" style={{ gap: '1rem', marginTop: '1rem' }}>
                                                                 {unregistered.map(r => (
-                                                                    <div key={r._id || r.id} className="glass-panel" style={{ padding: '1.2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--border-glass)' }}>
-                                                                        <div style={{ minWidth: 0 }}>
+                                                                    <div key={r._id || r.id} className="glass-panel" style={{ padding: '1.2rem', display: 'flex', gap: '1rem', alignItems: 'center', border: '1px solid var(--border-glass)' }}>
+                                                                        <DefaultRoleAvatar role="faculty" name={r.name} seed={r.email} size={36} />
+                                                                        <div style={{ minWidth: 0, flex: 1 }}>
                                                                             <div style={{ fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</div>
                                                                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>{r.email}</div>
                                                                             <div style={{ fontSize: '0.6rem', color: 'var(--primary)', fontWeight: 900, marginTop: '4px' }}>{r.empId || 'NO_ID'} | {r.department || 'NO_DEPT'}</div>
@@ -986,7 +1247,15 @@ const AdminDashboard = () => {
                                 <tbody>
                                     {faculty.filter(f => f.name?.toLowerCase().includes(facultySearch.toLowerCase()) || f.email?.toLowerCase().includes(facultySearch.toLowerCase())).map(f => (
                                         <tr key={f._id || f.id} style={{ opacity: f.status === 'disabled' ? 0.4 : 1 }}>
-                                            <td>{f.name}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{f.email}</div></td>
+                                            <td>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                    <DefaultRoleAvatar role={f.role} name={f.name} seed={f.email} size={36} />
+                                                    <div style={{ minWidth: 0 }}>
+                                                        <div style={{ fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</div>
+                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>{f.email}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
                                             <td>{f.department || 'N/A'}</td>
                                             <td style={{ textAlign: 'right' }}>
                                                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
@@ -1018,11 +1287,15 @@ const AdminDashboard = () => {
 
             {showFYModal && (
                 <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.98)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(30px)' }}>
-                    <div className="glass-panel" style={{ width: '95%', maxWidth: '1200px', maxHeight: '90vh', overflowY: 'auto', padding: 'clamp(1rem, 5vw, 3rem)', position: 'relative' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'clamp(1.5rem, 5vw, 3rem)', position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 10, padding: '1rem 0', borderBottom: '1px solid var(--border-glass)' }}>
-                            <h2 style={{ fontSize: '1.8rem', fontWeight: 900 }}>{editingFYId ? 'Update Session Settings' : 'Initialize New Cycle'}</h2>
+                    <div className="glass-panel" style={{ width: '95%', maxWidth: '1200px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+                        {/* Fixed Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 3rem', background: 'var(--bg-card)', zIndex: 10, borderBottom: '1px solid var(--border-glass)' }}>
+                            <h2 style={{ fontSize: '1.8rem', fontWeight: 900, margin: 0 }}>{editingFYId ? 'Update Session Settings' : 'Initialize New Cycle'}</h2>
                             <button className="btn btn-ghost" onClick={() => setShowFYModal(false)}><X /></button>
                         </div>
+
+                        {/* Scrollable Body */}
+                        <div className="modal-scroll-area" style={{ flex: 1, overflowY: 'auto', padding: 'clamp(1rem, 5vw, 3rem)' }}>
 
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2.5rem' }}>
                             <div className="f-group">
@@ -1125,10 +1398,12 @@ const AdminDashboard = () => {
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '4rem', flexWrap: 'wrap' }}>
-                            <button className="btn btn-ghost" style={{ flex: 1, minWidth: '150px', padding: '1.2rem', fontWeight: 900 }} onClick={() => setShowFYModal(false)}>CANCEL</button>
-                            <button className="btn btn-primary" style={{ flex: 2, minWidth: '200px', padding: '1.2rem', fontWeight: 900 }} onClick={saveFY} disabled={isSavingFY}>
-                                {isSavingFY ? <Loader2 className="animate-spin" /> : 'SAVE SESSION CONFIG'}
+                        </div> {/* End modal-scroll-area */}
+
+                        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', padding: '1.5rem 3rem', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid var(--border-glass)', flexWrap: 'wrap' }}>
+                            <button className="btn btn-ghost" style={{ flex: 1, maxWidth: '150px', padding: '1rem', fontWeight: 900 }} onClick={() => setShowFYModal(false)}>CANCEL</button>
+                            <button className="btn btn-primary" style={{ flex: 2, maxWidth: '300px', padding: '1rem', fontWeight: 900 }} onClick={saveFY} disabled={isSavingFY}>
+                                {isSavingFY ? <Loader2 className="animate-spin" /> : 'Save Cycle Details'}
                             </button>
                         </div>
                     </div>
@@ -1175,55 +1450,14 @@ const AdminDashboard = () => {
                         <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap' }}>
                             <button className="btn btn-ghost" style={{ flex: 1, padding: '1.2rem', fontWeight: 900 }} onClick={() => setShowMailModal(false)}>CANCEL</button>
                             <button className="btn btn-primary" style={{ flex: 2, padding: '1.2rem', fontWeight: 900, boxShadow: '0 10px 20px -5px var(--primary-glow)' }} onClick={dispatchEmails} disabled={isMailing}>
-                                {isMailing ? <><Loader2 className="animate-spin" size={18} /> DISPATCHING...</> : <><Send size={18} /> START DISPATCH</>}
+                                {isMailing ? <><Loader2 className="animate-spin" size={18} /> Sending...</> : <><Send size={18} /> Send Emails</>}
                             </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {showTemplateModal && (
-                <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(15px)' }}>
-                    <div className="glass-panel animate-pop" style={{ width: '95%', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto', padding: 'clamp(1rem, 4vw, 3rem)', border: '1px solid var(--border-glass)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                            <h2 style={{ fontSize: '1.8rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '12px' }}><Mail /> Email Center: {selectedFyForMail?.name}</h2>
-                            <button className="btn btn-ghost" onClick={() => setShowTemplateModal(false)}><X /></button>
-                        </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '2rem' }}>
-                            <div className="glass-panel" style={{ padding: '1.5rem', background: 'var(--bg-surface)' }}>
-                                <h3 style={{ fontWeight: 900, marginBottom: '1rem', color: 'var(--primary)' }}>Dispatch Existing Template</h3>
-                                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
-                                    <select className="glass-panel" style={{ flex: 1, padding: '1rem', fontWeight: 700 }} value={selectedTemplateId} onChange={e => setSelectedTemplateId(e.target.value)}>
-                                        <option value="">-- Choose a Saved Template --</option>
-                                        {templates.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
-                                    </select>
-                                    <button className="btn btn-primary" onClick={dispatchCustomMails} disabled={isMailing || !selectedTemplateId}>
-                                        {isMailing ? <Loader2 className="animate-spin" /> : 'SEND TO COHORT'}
-                                    </button>
-                                </div>
-                                {templates.map(t => (
-                                    <div key={t._id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid var(--border-glass)' }}>
-                                        <div style={{ fontWeight: 700 }}>{t.name} <span style={{ opacity: 0.5, fontSize: '0.8rem', marginLeft: '10px' }}>{t.subject}</span></div>
-                                        <button className="btn btn-ghost" style={{ color: '#ef4444', padding: '0.2rem 0.5rem' }} onClick={() => deleteCustomTemplate(t._id)}><Trash2 size={14} /></button>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="glass-panel" style={{ padding: '1.5rem', border: '1px solid var(--border-color)' }}>
-                                <h3 style={{ fontWeight: 900, marginBottom: '1rem' }}>Create New Template</h3>
-                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>Variables available: <code>{`{{userName}}`}</code>, <code>{`{{fyName}}`}</code>, <code>{`{{email}}`}</code>, <code>{`{{coverageId}}`}</code></p>
-
-                                <input className="glass-panel" style={{ width: '100%', padding: '0.8rem', marginBottom: '1rem' }} placeholder="Template Name (e.g. Reject Notice)" value={newTemplate.name} onChange={e => setNewTemplate(n => ({ ...n, name: e.target.value }))} />
-                                <input className="glass-panel" style={{ width: '100%', padding: '0.8rem', marginBottom: '1rem' }} placeholder="Email Subject" value={newTemplate.subject} onChange={e => setNewTemplate(n => ({ ...n, subject: e.target.value }))} />
-                                <textarea className="glass-panel" style={{ width: '100%', padding: '0.8rem', minHeight: '150px', marginBottom: '1rem', fontFamily: 'monospace', fontSize: '0.85rem' }} placeholder="<p>Hello {{userName}}, your coverage {{coverageId}}...</p>" value={newTemplate.html} onChange={e => setNewTemplate(n => ({ ...n, html: e.target.value }))} />
-
-                                <button className="btn btn-ghost" style={{ width: '100%', background: 'transparent', border: '1px solid var(--primary)', color: 'var(--primary)' }} onClick={saveCustomTemplate}>Save Template</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {isProcessing && (
                 <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

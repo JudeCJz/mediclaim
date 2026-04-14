@@ -83,7 +83,7 @@ const Settings = () => {
                 {/* PROFILE SECTION */}
                 <div className="glass-panel" style={{ padding: '1.5rem', background: 'var(--bg-surface)', border: '0.5px solid var(--border-color)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-                        <DefaultRoleAvatar role={user?.role} name={user?.name} size={56} />
+                        <DefaultRoleAvatar role={user?.role} name={user?.name} seed={user?.email} size={56} />
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
                             <h2 style={{ fontWeight: 500, color: 'var(--text-main)', fontSize: '15px' }}>Member Profile</h2>
                         </div>
@@ -91,15 +91,15 @@ const Settings = () => {
 
                     <div style={{ display: 'grid', gap: '1.5rem' }}>
                         <div className="responsive-auto-grid" style={{ gap: '1rem' }}>
-                            {[
+                            { [
                                 { lab: 'FULL NAME', key: 'name', solid: user?.role !== 'admin' },
-                                { lab: 'EMAIL ADDRESS', key: 'email', solid: user?.role !== 'admin' },
+                                { lab: 'EMAIL ADDRESS', key: 'email', solid: user?.role !== 'admin', span: true },
                                 { lab: 'EMPLOYEE ID', key: 'empId' },
                                 { lab: 'PHONE NUMBER', key: 'phone' },
                                 { lab: 'DEPARTMENT', key: 'department', up: true, solid: user?.role !== 'admin' },
                                 { lab: 'DESIGNATION', key: 'designation' }
                             ].map(f => (
-                                <div key={f.key}>
+                                <div key={f.key} style={{ gridColumn: f.span ? 'span 2' : 'auto' }}>
                                     <label style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>{f.lab}</label>
                                     <input 
                                         type="text" 
