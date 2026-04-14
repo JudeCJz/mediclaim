@@ -29,7 +29,7 @@ const getTransporter = async () => {
 
   const nodemailer = require('nodemailer');
   const port = Number(SMTP_PORT);
-  return nodemailer.createTransport({
+  const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
     port: port,
     secure: port === 465,          // true for 465 (SSL), false for 587 (STARTTLS)
@@ -42,6 +42,17 @@ const getTransporter = async () => {
       rejectUnauthorized: false    // prevents self-signed cert issues on some hosts
     }
   });
+
+  // Verify SMTP connection before returning — error will surface in logs
+  try {
+    await transporter.verify();
+    console.log('SMTP connection verified successfully.');
+  } catch (verifyErr) {
+    console.error('SMTP VERIFY FAILED:', verifyErr.code, verifyErr.message);
+    throw verifyErr;
+  }
+
+  return transporter;
 };
 
 const sendMail = async ({ to, subject, html }) => {
@@ -67,7 +78,10 @@ const sendMail = async ({ to, subject, html }) => {
       rejected: info.rejected
     };
   } catch (err) {
-    console.error('Nodemailer Error:', err);
+    console.error('Nodemailer sendMail Error:');
+    console.error('  code   :', err.code);
+    console.error('  message:', err.message);
+    console.error('  response:', err.response);
     throw err;
   }
 };
