@@ -28,13 +28,18 @@ const getTransporter = async () => {
   }
 
   const nodemailer = require('nodemailer');
+  const port = Number(SMTP_PORT);
   return nodemailer.createTransport({
     host: SMTP_HOST,
-    port: Number(SMTP_PORT),
-    secure: Number(SMTP_PORT) === 465,
+    port: port,
+    secure: port === 465,          // true for 465 (SSL), false for 587 (STARTTLS)
+    requireTLS: port === 587,      // enforce STARTTLS upgrade on port 587
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASS
+    },
+    tls: {
+      rejectUnauthorized: false    // prevents self-signed cert issues on some hosts
     }
   });
 };
