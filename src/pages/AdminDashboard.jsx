@@ -5,8 +5,11 @@ import DefaultRoleAvatar from '../components/DefaultRoleAvatar';
 import { ShieldCheck, Plus, X, Edit, Mail, Info, Send, Save, UserMinus, Key, ShieldAlert, CheckCircle, Clock, Heart, User, Phone, Briefcase, BarChart3, Activity, ArrowRight, Lock, Unlock, Search, Trash2, Users, Download, FileText, Settings, Loader2, AlertTriangle, Megaphone } from 'lucide-react';
 
 const AdminDashboard = () => {
-    const { activeFY, activeTab, setActiveTab, isDemoMode, DEMO_FACULTY, socket } = useApp();
+    const { activeFY, activeTab, setActiveTab, isDemoMode, DEMO_FACULTY, socket, departments, setDepartments } = useApp();
+    const [newDeptName, setNewDeptName] = useState('');
     const [years, setYears] = useState([]);
+    const [userSubmissions, setUserSubmissions] = useState({});
+    const [mailingProgress, setMailingProgress] = useState({ current: 0, total: 0, active: false, message: '' });
     const [submissions, setSubmissions] = useState([]);
     const [faculty, setFaculty] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -41,6 +44,8 @@ const AdminDashboard = () => {
 
     const [editingFYId, setEditingFYId] = useState(null);
     const [facultySearch, setFacultySearch] = useState('');
+    const [unregSearch, setUnregSearch] = useState('');
+    const [unregDeptFilter, setUnregDeptFilter] = useState('');
     const [mailFilters, setMailFilters] = useState({
         fyId: activeFY?._id || '',
         audience: 'all',
@@ -107,9 +112,31 @@ const AdminDashboard = () => {
             setFaculty(fRes.data);
             setTemplates(tRes.data);
         } catch (err) {
-            console.error("Error fetching admin data:", err);
+            console.error("Error fetching data:", err);
         }
     }, []);
+
+    const addDepartment = async () => {
+        if (!newDeptName.trim()) return;
+        try {
+            const res = await api.post('/departments', { name: newDeptName.trim() });
+            setDepartments([...departments, res.data]);
+            setNewDeptName('');
+        } catch (err) {
+            console.error(err);
+            alert(err.response?.data?.msg || "Failed to add department");
+        }
+    };
+
+    const deleteDepartment = async (id) => {
+        try {
+            await api.delete(`/departments/${id}`);
+            setDepartments(departments.filter(d => d._id !== id));
+        } catch (err) {
+            console.error(err);
+            alert("Failed to delete department");
+        }
+    };
 
     useEffect(() => {
         if (isDemoMode) {
@@ -127,10 +154,14 @@ const AdminDashboard = () => {
             socket.on('CLAIM_UPDATED', fetchData);
             socket.on('USER_UPDATED', fetchData);
             socket.on('FY_UPDATED', fetchData);
+            socket.on('MAIL_PROGRESS', (data) => {
+                setMailingProgress({ ...data, active: true });
+            });
             return () => {
                 socket.off('CLAIM_UPDATED', fetchData);
                 socket.off('USER_UPDATED', fetchData);
                 socket.off('FY_UPDATED', fetchData);
+                socket.off('MAIL_PROGRESS');
             };
         }
     }, [isDemoMode, activeFY, socket, fetchData, DEMO_FACULTY]);
@@ -204,6 +235,7 @@ const AdminDashboard = () => {
         if (!tId) return alert('Please select a template to send.');
         if (!selectedFyForMail) return;
         setIsMailing(true);
+        setMailingProgress({ current: 0, total: 10, active: true, message: 'Preparing custom batch dispatches...' }); // Approximate start
         try {
             const res = await api.post('/mail/dispatch-custom', {
                 fyId: selectedFyForMail._id || selectedFyForMail.id,
@@ -211,8 +243,9 @@ const AdminDashboard = () => {
             });
             setShowTemplateModal(false);
             setMailDropdownAnchor(null);
-            setTimeout(() => setAlertConfig({ title: 'EMAILS DISPATCHED', text: res.data.message }), 500);
+            // Don't set alertConfig immediately if progress bar is active and handles completion
         } catch (err) {
+            setMailingProgress(prev => ({ ...prev, active: false }));
             setAlertConfig({ title: 'ERROR', type: 'danger', text: 'Failed to dispatch custom emails.' });
         } finally { setIsMailing(false); }
     };
@@ -319,8 +352,8 @@ const AdminDashboard = () => {
             .filter(r => r.includes(","))
             .filter(r => {
                 const lower = r.toLowerCase();
-                // Skip CSV header rows like "Name,Department,Email"
-                return !(lower.startsWith('name,') && lower.includes(',email'));
+                // Skip CSV header rows
+                return !(lower.includes('name') && lower.includes('email'));
             });
         try {
             const res = await api.post('/users/bulk-register', { rows });
@@ -339,10 +372,14 @@ const AdminDashboard = () => {
     };
 
     const processBulkDelete = async () => {
-        if (!confirm("CONFIRM_BULK_DELETE? All personnel listed below will be purged from the registry.")) return;
+        if (!confirm("Confirm Batch Deletion? All personnel listed below will be purged from the registry.")) return;
         setIsProcessing(true);
         const rows = bulkData.split("\n").filter(r => r.includes(","));
-        const emails = rows.map(row => row.split(",")[2]?.trim()).filter(Boolean);
+        const emails = rows.map(row => {
+            const parts = row.split(",").map(s => s.trim());
+            // Email is usually the last part in Name,Email or Name,Dept,Email
+            return parts.length > 2 ? parts[2] : parts[1];
+        }).filter(e => e && e.includes("@"));
         try {
             await api.post('/users/bulk-delete', { emails });
             alert("Purge complete."); setBulkData(""); fetchData();
@@ -351,13 +388,13 @@ const AdminDashboard = () => {
     };
 
     const processBulkStatus = async (statusValue) => {
-        if (!confirm(`CONFIRM_BULK_${statusValue.toUpperCase()}? All listed personnel will be set to ${statusValue}.`)) return;
+        if (!confirm(`Confirm Batch Status Update? All listed personnel will be set to ${statusValue}.`)) return;
         setIsProcessing(true);
         const rows = bulkData.split("\n").filter(r => r.includes(","));
         const emails = rows.map(row => {
             const parts = row.split(",").map(s => s.trim());
-            return parts.length > 2 ? parts[2] : parts[0];
-        }).filter(Boolean);
+            return parts.length > 2 ? parts[2] : parts[1];
+        }).filter(e => e && e.includes("@"));
         try {
             await api.post('/users/bulk-status', { emails, status: statusValue });
             alert(`Bulk ${statusValue} complete.`); fetchData();
@@ -371,45 +408,41 @@ const AdminDashboard = () => {
         if (!found) return alert("Employee not found in registry");
         setSelectedUserToReset(found);
     };
+
     const exportCSV = (fyId, fyName) => {
         const targetFyId = fyId || (activeFY?._id || activeFY?.id);
         const targetFyName = fyName || activeFY?.name || 'export';
-        // Max children across all records for dynamic column generation
-        const filteredSubs = submissions.filter(s => !s.archived && s.fyId === targetFyId);
-        const maxChildren = Math.max(0, ...filteredSubs.map(s => s.dependents?.filter(d => d.type === 'child').length || 0));
-        const maxParents = Math.max(0, ...filteredSubs.map(s => s.dependents?.filter(d => d.type === 'parent').length || 0));
+        
+        const filteredSubs = submissions
+            .filter(s => !s.archived && s.fyId === targetFyId)
+            .sort((a, b) => (a.department || '').localeCompare(b.department || ''));
 
-        let childCols = '';
-        for (let i = 1; i <= maxChildren; i++) childCols += `,Child ${i},Child ${i} DOB`;
-        let parentCols = '';
-        for (let i = 1; i <= maxParents; i++) parentCols += `,Parent ${i},Parent ${i} DOB`;
+        // Columns: Department, Employee ID, Name, Relation, Gender, DOB, Coverage, Total Premium
+        let headers = "Department,Employee ID,Member Name,Relation,Gender,DOB,Coverage,Total Premium\n";
 
-        let headers = `Faculty Name,Email,Coverage,Premium,Spouse Name,Spouse DOB${childCols}${parentCols}\n`;
+        let csvData = filteredSubs.map(s => {
+            // Main row (Faculty)
+            let rows = [`"${s.department || ''}","${s.empId || ''}","${s.userName || ''}","Self","${s.gender || ''}","${s.doj || ''}","${s.coverageId || ''}","${s.premium || 0}"`];
 
-        let csv = filteredSubs.map(s => {
-            const spouse = s.dependents?.find(d => d.type === 'spouse');
-            const children = s.dependents?.filter(d => d.type === 'child') || [];
-            const parents = s.dependents?.filter(d => d.type === 'parent') || [];
-
-            let childData = '';
-            for (let i = 0; i < maxChildren; i++) {
-                childData += `,"${children[i]?.name || ''}","${children[i]?.dob || ''}"`;
+            // Dependents
+            if (s.dependents && s.dependents.length > 0) {
+                s.dependents.forEach(d => {
+                    const rel = d.type === 'parent' ? (d.relation || 'Parent') : d.type;
+                    rows.push(`"${s.department || ''}","","${d.name || ''}","${rel || ''}","${d.gender || ''}","${d.dob || ''}","",""`);
+                });
             }
-            let parentData = '';
-            for (let i = 0; i < maxParents; i++) {
-                parentData += `,"${parents[i]?.name || ''}","${parents[i]?.dob || ''}"`;
-            }
-
-            return `"${s.userName}","${s.email}","${s.coverageId}","${s.premium}","${spouse?.name || ''}","${spouse?.dob || ''}"${childData}${parentData}`;
+            return rows.join("\n");
         }).join("\n");
 
-        const blob = new Blob([headers + csv], { type: 'text/csv' });
+        const blob = new Blob([headers + csvData], { type: 'text/csv;charset=utf-8;' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = `Mediclaim_${targetFyName}_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.setAttribute('hidden', '');
+        a.setAttribute('href', url);
+        a.setAttribute('download', `Enrollment_${targetFyName}_Stacked.csv`);
+        document.body.appendChild(a);
         a.click();
-        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
     };
 
     const sendSingleConfirmation = async (submission) => {
@@ -426,11 +459,11 @@ const AdminDashboard = () => {
             } else {
                 // For existing enrollment confirmations
                 await api.post('/mail/dispatch-confirmations', { claimIds: [submission._id || submission.id] });
-                setAlertConfig({ title: 'EMAIL SENT', text: `Confirmation email dispatched to ${submission.email}.` });
+                setAlertConfig({ title: 'Email Sent', text: `Confirmation email dispatched to ${submission.email}.` });
             }
         } catch (err) {
             console.error(err);
-            setAlertConfig({ title: 'EMAIL FAILED', text: 'Could not send email. Please check server logs.' });
+            setAlertConfig({ title: 'Email Dispatch Failed', text: 'The system could not send the email. Ensure SMTP or Resend API credentials are correctly configured in the .env file.' });
         }
     };
 
@@ -455,13 +488,13 @@ const AdminDashboard = () => {
     };
 
     const deleteFacultyUser = async (id) => {
-        if (!confirm("Delete this faculty account? This action cannot be undone.")) return;
         try {
             await api.delete(`/users/${id}`);
             fetchData();
+            setAlertConfig({ title: 'USER REMOVED', text: 'The faculty account has been permanently deleted.' });
         } catch (err) {
             console.error(err);
-            alert("Failed to delete faculty user.");
+            setAlertConfig({ title: 'ERROR', type: 'danger', text: err.response?.data?.msg || "Failed to delete faculty user from database." });
         }
     };
 
@@ -538,17 +571,18 @@ const AdminDashboard = () => {
 
     const dispatchEmails = async () => {
         setIsMailing(true);
+        setMailingProgress({ current: 0, total: selectedIds.length, active: true, message: 'Initialising confirmation batch...' });
         try {
             await api.post('/mail/dispatch-confirmations', {
                 fyId: activeFY?.id || activeFY?._id,
                 claimIds: selectedIds
             });
-            alert(`Emails have been dispatched to ${selectedIds.length} faculty members.`);
             setShowMailModal(false);
             setSelectedIds([]); // Reset selection after dispatch
         } catch (err) {
             console.error(err);
-            alert("Email dispatch failed. Please check your network connection.");
+            setAlertConfig({ title: 'Dispatch Alert', text: 'Email dispatch encountered an issue. Check server logs.', type: 'danger' });
+            setMailingProgress(prev => ({ ...prev, active: false }));
         } finally {
             setIsMailing(false);
         }
@@ -747,7 +781,7 @@ const AdminDashboard = () => {
                                     />
                                 </div>
                                 <div style={{ fontSize: '0.65rem', fontWeight: 800, opacity: 0.5, borderTop: '1px dashed var(--border-glass)', paddingTop: '1rem' }}>
-                                    AVAILABLE_TOKENS: <code>{`{{userName}}`}</code>, <code>{`{{fyName}}`}</code>, <code>{`{{email}}`}</code>, <code>{`{{coverageId}}`}</code>
+                                    Available Fields: <code>{`{{userName}}`}</code>, <code>{`{{fyName}}`}</code>, <code>{`{{email}}`}</code>, <code>{`{{coverageId}}`}</code>
                                 </div>
                             </div>
 
@@ -767,7 +801,7 @@ const AdminDashboard = () => {
                                             setAlertConfig({ title: 'PRESET SAVED', text: 'Draft has been added to your permanent presets.' });
                                         }}
                                     >
-                                        <Save size={16} /> SAVE_AS_NEW
+                                        <Save size={16} /> Save New Template
                                     </button>
                                 )}
                                 <button 
@@ -780,7 +814,9 @@ const AdminDashboard = () => {
                                             type: 'primary',
                                             text: `You are about to send this customized email to ${getTargetAudience().length} members. Send now?`,
                                             onConfirm: async () => {
+                                                const audienceCount = getTargetAudience().length;
                                                 setIsMailing(true);
+                                                setMailingProgress({ current: 0, total: audienceCount, active: true, message: 'Initiating institutional email campaign...' });
                                                 try {
                                                     const res = await api.post('/mail/dispatch-custom', {
                                                         templateId: selectedTemplateId, // Still pass ID for reference if exists
@@ -789,9 +825,9 @@ const AdminDashboard = () => {
                                                         userIds: getTargetAudience().map(f => f._id || f.id),
                                                         fyId: mailFilters.fyId
                                                     });
-                                                    setAlertConfig({ title: 'EMAILS SENT', text: res.data.message });
                                                 } catch (err) {
-                                                    setAlertConfig({ title: 'SEND FAILED', type: 'danger', text: err.response?.data?.msg || err.message || 'System failed to process batch mailing.' });
+                                                    setMailingProgress(prev => ({ ...prev, active: false }));
+                                                    setAlertConfig({ title: 'DISPATCH FAILED', type: 'danger', text: err.response?.data?.msg || err.message || 'System failed to process batch mailing.' });
                                                 } finally { setIsMailing(false); }
                                             }
                                         });
@@ -810,7 +846,7 @@ const AdminDashboard = () => {
                         <div className="responsive-auto-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(clamp(120px, 30vw, 160px), 1fr))', gap: '0.75rem' }}>
                             <div className="stat-card-premium hover-blue" style={{ background: 'var(--bg-card)', padding: '0.5rem 0.75rem', border: 'var(--border)' }}>
                                 <div className="stat-val" style={{ fontSize: '18px', fontWeight: 900, color: '#2563eb' }}>{faculty.length}</div>
-                                <div className="stat-lab" style={{ fontSize: '10px', fontWeight: 900, color: '#2563eb', letterSpacing: '0.05em' }}>TOTAL FACULTY</div>
+                                <div className="stat-lab" style={{ fontSize: '10px', fontWeight: 900, color: '#2563eb', letterSpacing: '0.05em' }}>TOTAL STAFF</div>
                             </div>
                             <div className="stat-card-premium hover-green" style={{ background: 'var(--bg-card)', padding: '0.5rem 0.75rem', border: 'var(--border)' }}>
                                 <div className="stat-val" style={{ fontSize: '18px', fontWeight: 900, color: '#10b981' }}>{submissions.filter(s => !s.archived && s.fyId === (activeFY?._id || activeFY?.id)).length}</div>
@@ -842,117 +878,59 @@ const AdminDashboard = () => {
                             </div>
                         )}
 
-                        <div className="table-responsive-premium mobile-hide">
-                            <table className="data-table-premium">
-                                <thead>
-                                    <tr>
-                                        <th>CYCLE_NAME</th>
-                                        <th>STATUS_AUTHORIZATION</th>
-                                        <th>COVERAGE_TIERS</th>
-                                        <th>DEPENDENCY_LIMITS</th>
-                                        <th>DATA_EXPORT</th>
-                                        <th>OPERATIONAL_ACTIONS</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {years.sort((a, b) => b.name.localeCompare(a.name)).map(y => (
-                                        <tr key={y._id || y.id} style={{ opacity: y.enabled ? 1 : 0.6, transition: 'all 0.3s ease' }}>
-                                            <td style={{ fontWeight: 900, fontSize: '1.1rem', letterSpacing: '1px', whiteSpace: 'nowrap', width: '150px' }}>FY {y.name}</td>
-                                            <td>
-                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.8rem', padding: '0.4rem 1.2rem', background: y.enabled ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: y.enabled ? '#22c55e' : '#ef4444', border: '1px solid currentColor', fontWeight: 900, fontSize: '0.7rem', letterSpacing: '1px', height: '40px' }}>
-                                                    {y.enabled ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
-                                                    {y.enabled ? 'ACCEPTING_ENTRIES' : 'DISABLED_SESSION'}
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', minHeight: '40px', alignItems: 'center' }}>
-                                                    {y.policies?.map(p => (
-                                                        <div key={p.id} style={{ fontSize: '0.6rem', fontWeight: 900, background: 'rgba(255,255,255,0.03)', padding: '0.3rem 0.6rem', border: '1px solid var(--border-glass)', borderRadius: '4px', whiteSpace: 'nowrap' }}>
-                                                            {p.label} (₹{p.premium / 1000}K)
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <div style={{ display: 'flex', gap: '1.2rem', fontSize: '0.75rem', fontWeight: 900 }}>
-                                                    <span style={{ color: 'var(--text-muted)' }}>CH: <b style={{ color: 'var(--text-main)' }}>{y.maxChildren}</b></span>
-                                                    <span style={{ color: 'var(--text-muted)' }}>PA: <b style={{ color: 'var(--text-main)' }}>{y.maxParents}</b></span>
-                                                </div>
-                                            </td>
-                                            <td>
-                                                {(() => {
-                                                    const cycleId = y._id || y.id;
-                                                    const count = submissions.filter(s => !s.archived && s.fyId === cycleId).length;
-                                                    return (
-                                                        <button
-                                                            className="btn btn-ghost"
-                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.6rem', padding: '0 1.2rem', fontSize: '0.7rem', fontWeight: 900, color: count > 0 ? '#22c55e' : 'var(--text-muted)', border: `1px solid ${count > 0 ? '#22c55e40' : 'var(--border-glass)'}`, opacity: count > 0 ? 1 : 0.5, height: '40px', whiteSpace: 'nowrap' }}
-                                                            onClick={() => exportCSV(cycleId, y.name)}
-                                                            title={`Export ${count} enrollment(s) for FY ${y.name}`}
-                                                        >
-                                                            <Download size={15} /> {count} RECORDS
-                                                        </button>
-                                                    );
-                                                })()}
-                                            </td>
-                                            <td>
-                                                <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', height: '40px' }}>
-                                                    <button className="btn btn-ghost" style={{ height: '36px', width: '36px', padding: 0, background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid #f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => openEdit(y)}><Edit size={16} /></button>
-                                                    <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '36px', fontSize: '0.75rem', fontWeight: 900, background: y.enabled ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)', color: y.enabled ? '#ef4444' : '#22c55e', border: '1px solid currentColor' }} onClick={() => toggleYear(y._id || y.id, y.enabled)}>
-                                                        {y.enabled ? 'DISABLE' : 'ENABLE'}
-                                                    </button>
-                                                    <button className="btn btn-ghost" style={{ height: '36px', width: '36px', padding: 0, color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => {
-                                                        setAlertConfig({
-                                                            title: 'HARD_DELETE',
-                                                            type: 'danger',
-                                                            text: `Permanently destroy session ${y.name}? THIS CANNOT BE UNDONE.`,
-                                                            onConfirm: () => deleteFY(y._id || y.id)
-                                                        });
-                                                    }}><Trash2 size={16} /></button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div className="mobile-only" style={{ flexDirection: 'column', gap: '1.5rem' }}>
-                            {years.sort((a, b) => b.name.localeCompare(a.name)).map(y => {
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            {years.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map(y => {
                                 const cycleId = y._id || y.id;
                                 const count = submissions.filter(s => !s.archived && s.fyId === cycleId).length;
                                 return (
-                                    <div key={cycleId} className="glass-panel" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <div style={{ fontWeight: 900, fontSize: '1.2rem' }}>FY {y.name}</div>
-                                            <div style={{ fontSize: '0.6rem', fontWeight: 900, padding: '0.3rem 0.6rem', background: y.enabled ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: y.enabled ? '#22c55e' : '#ef4444', border: '1px solid currentColor' }}>
-                                                {y.enabled ? 'ACTIVE' : 'DISABLED'}
+                                    <div key={cycleId} className="glass-panel animate-pop item-hover" style={{ padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1.5rem', border: y.enabled ? '1px solid var(--primary)30' : 'var(--border)', opacity: y.enabled ? 1 : 0.8, background: y.enabled ? 'var(--bg-card)' : 'var(--bg-surface)', flexWrap: 'wrap' }}>
+                                        {/* 1. Basic Info */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', minWidth: '220px' }}>
+                                            <div style={{ fontSize: '1.25rem', fontWeight: 900, color: 'var(--text-main)' }}>FY {y.name}</div>
+                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.8rem', borderRadius: '8px', background: y.enabled ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.08)', color: y.enabled ? '#22c55e' : 'var(--text-muted)', border: '1px solid currentColor', fontWeight: 900, fontSize: '0.65rem', letterSpacing: '0.5px' }}>
+                                                {y.enabled ? 'ACTIVE' : 'CLOSED'}
                                             </div>
                                         </div>
-                                        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                                            {y.policies?.map(p => (
-                                                <div key={p.id} style={{ fontSize: '0.6rem', fontWeight: 900, opacity: 0.7 }}>{p.label}</div>
-                                            ))}
+
+                                        {/* 2. Stats (Row style) */}
+                                        <div style={{ display: 'flex', gap: '2rem', flex: 1, minWidth: '300px', alignItems: 'center' }}>
+                                            <div>
+                                                <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--text-muted)' }}>INITIALIZED</div>
+                                                <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>{y.createdAt ? new Date(y.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '---'}</div>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--text-muted)' }}>RECORDS</div>
+                                                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: count > 0 ? '#10b981' : 'var(--text-main)' }}>{count}</div>
+                                            </div>
+                                            <div style={{ flex: 1, display: 'flex', gap: '1rem', borderLeft: '1px solid var(--border-glass)', paddingLeft: '1.5rem' }}>
+                                                <div>
+                                                    <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--text-muted)' }}>KIDS</div>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>{y.maxChildren}</div>
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--text-muted)' }}>PARENTS</div>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>{y.maxParents}</div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid var(--border-glass)', gap: '1rem' }}>
-                                            <button className="btn btn-ghost" style={{ flex: 1, minHeight: '45px', fontSize: '0.85rem', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '0.5rem' }} onClick={() => exportCSV(cycleId, y.name)}>
-                                                <Download size={18} style={{ flexShrink: 0 }} />
-                                                <span style={{ fontWeight: 900, whiteSpace: 'nowrap' }}>{count} RECORDS</span>
+
+                                        {/* 3. Actions Row */}
+                                        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                                            <button 
+                                                className="btn btn-ghost" 
+                                                style={{ height: '40px', padding: '0 1rem', fontSize: '0.7rem', fontWeight: 900, color: count > 0 ? '#22c55e' : 'var(--text-muted)', border: '1px solid currentColor', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                                onClick={() => exportCSV(cycleId, y.name)}
+                                                disabled={count === 0}
+                                            >
+                                                <Download size={15} /> EXPORT
                                             </button>
-                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
-                                                <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '44px', fontSize: '0.75rem', fontWeight: 900, background: y.enabled ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)', color: y.enabled ? '#ef4444' : '#22c55e', border: '1px solid currentColor', flexShrink: 0 }} onClick={() => toggleYear(y._id || y.id, y.enabled)}>
-                                                    {y.enabled ? 'DISABLE' : 'ENABLE'}
-                                                </button>
-                                                <button className="btn btn-ghost" style={{ width: '44px', height: '44px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }} onClick={() => openEdit(y)}><Edit size={20} style={{ flexShrink: 0 }} /></button>
-                                                <button className="btn btn-ghost" style={{ width: '44px', height: '44px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', flexShrink: 0 }} onClick={() => {
-                                                    setAlertConfig({
-                                                        title: 'HARD_DELETE',
-                                                        type: 'danger',
-                                                        text: `Permanently destroy session ${y.name}? THIS CANNOT BE UNDONE.`,
-                                                        onConfirm: () => deleteFY(y._id || y.id)
-                                                    });
-                                                }}><Trash2 size={20} style={{ flexShrink: 0 }} /></button>
-                                            </div>
+                                            <button className="btn btn-ghost" style={{ width: '40px', height: '40px', padding: 0, background: 'rgba(245,158,11,0.08)', color: '#f59e0b', border: '1px solid currentColor', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => openEdit(y)}><Edit size={16} /></button>
+                                            <button className={`btn ${y.enabled ? 'btn-ghost' : 'btn-primary'}`} style={{ padding: '0 1rem', height: '40px', fontSize: '0.7rem', fontWeight: 900, border: '1px solid currentColor' }} onClick={() => toggleYear(y._id || y.id, y.enabled)}>
+                                                {y.enabled ? 'DISABLE' : 'ENABLE'}
+                                            </button>
+                                            <button className="btn btn-ghost" style={{ width: '40px', height: '40px', padding: 0, color: '#ef4444', opacity: 0.6, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => {
+                                                setAlertConfig({ title: 'DELETE SESSION', type: 'danger', text: `Remove FY ${y.name}?`, onConfirm: () => deleteFY(y._id || y.id) });
+                                            }}><Trash2 size={16} /></button>
                                         </div>
                                     </div>
                                 );
@@ -971,29 +949,11 @@ const AdminDashboard = () => {
                                 <input className="glass-panel" style={{ width: '100%', padding: '1.2rem 1.2rem 1.2rem 4rem', fontWeight: 700, fontSize: '1rem' }} placeholder="Search enrollment database..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                             </div>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', width: '100%' }}>
-
-                            <button
-                                className="btn btn-primary"
-                                style={{
-                                    padding: '1.2rem',
-                                    display: 'flex',
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                    gap: '12px',
-                                    background: 'linear-gradient(135deg, #6366f1 0%, #4338ca 100%)',
-                                    border: '1px solid rgba(255,255,255,0.1)',
-                                    boxShadow: '0 8px 25px -5px rgba(67, 56, 202, 0.4)',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '1px',
-                                    fontSize: '0.75rem',
-                                    fontWeight: 900,
-                                    whiteSpace: 'nowrap'
-                                }}
-                                onClick={() => exportCSV()}
-                            >
-                                <Download size={18} /> GLOBAL EXPORT
-                            </button>
+                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                            <div style={{ padding: '8px 16px', background: 'var(--primary-glow)', borderRadius: '12px', border: '1px solid var(--primary)30' }}>
+                                <div style={{ fontSize: '10px', color: 'var(--primary)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '1px' }}>Total Cycles</div>
+                                <div style={{ fontSize: '18px', fontWeight: 900 }}>{years.length}</div>
+                            </div>
                         </div>
                     </div>
 
@@ -1029,7 +989,7 @@ const AdminDashboard = () => {
                                             <div style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--primary)', letterSpacing: '1px', marginBottom: '4px' }}>FINANCIAL CYCLE</div>
                                             <div style={{ fontSize: 'clamp(1.1rem, 5vw, 1.3rem)', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                                 {fy.name}
-                                                {fy.enabled && <span style={{ fontSize: '0.6rem', padding: '0.2rem 0.5rem', background: '#22c55e', color: 'white', fontWeight: 900, borderRadius: '4px' }}>ACTIVE</span>}
+                                                {fy.enabled && <span style={{ fontSize: '0.6rem', padding: '0.2rem 0.5rem', background: '#22c55e', color: 'white', fontWeight: 900, borderRadius: '12px' }}>ACTIVE</span>}
                                             </div>
                                         </div>
                                     </div>
@@ -1060,158 +1020,153 @@ const AdminDashboard = () => {
                                 </div>
 
                                 {expandedFolders[fy._id] && (
-                                    <div className="folder-content animate-slideDown" style={{ padding: '1rem 0 0 0' }}>
-                                        <>
-                                            <div className="table-responsive-premium mobile-hide" style={{ border: 'none', background: 'transparent' }}>
-                                                <table className="data-table-premium">
-                                                    <thead>
-                                                        <tr>
-                                                            <th>Faculty Member</th>
-                                                            <th>ID / Bio</th>
-                                                            <th>Dept / Designation</th>
-                                                            <th>Coverage Config</th>
-                                                            <th style={{ textAlign: 'center' }}>Total Premium</th>
-                                                            <th style={{ textAlign: 'center' }}>Actions</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {fy.claims.length === 0 ? (
+                                    <div className="folder-content animate-slideDown" style={{ padding: '1.5rem', background: 'rgba(59, 130, 246, 0.04)', borderRadius: '0 0 16px 16px' }}>
+                                        {/* Unified Filter Bar for Cycle */}
+                                        <div className="glass-panel" style={{ padding: '1rem', display: 'flex', gap: '1rem', marginBottom: '1.5rem', background: 'rgba(255,255,255,0.02)', alignItems: 'center', flexWrap: 'wrap' }}>
+                                            <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
+                                                <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
+                                                <input 
+                                                    className="glass-panel" 
+                                                    style={{ width: '100%', padding: '0.7rem 1rem 0.7rem 2.5rem', fontSize: '0.85rem', fontWeight: 600 }} 
+                                                    placeholder="Search personnel in this cycle..." 
+                                                    value={unregSearch} 
+                                                    onChange={e => setUnregSearch(e.target.value)} 
+                                                />
+                                            </div>
+                                            <select 
+                                                className="glass-panel" 
+                                                style={{ padding: '0.7rem 1rem', fontSize: '0.85rem', fontWeight: 600, minWidth: '200px' }} 
+                                                value={unregDeptFilter} 
+                                                onChange={e => setUnregDeptFilter(e.target.value)}
+                                            >
+                                                <option value="">All Departments</option>
+                                                {departments.map(d => (
+                                                    <option key={d._id} value={d.name}>{d.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {(() => {
+                                            const query = unregSearch.toLowerCase();
+                                            const dept = unregDeptFilter;
+
+                                            const enrolled = fy.claims.map(c => ({ 
+                                                ...c, 
+                                                _type: 'enrolled', 
+                                                name: c.userName,
+                                                _id: c._id || c.id 
+                                            }));
+                                            
+                                            const pending = faculty.filter(f => 
+                                                f.status !== 'disabled' && 
+                                                !fy.claims.some(c => c.email === f.email)
+                                            ).map(f => ({ 
+                                                ...f, 
+                                                _type: 'pending' 
+                                            }));
+
+                                            const combined = [...enrolled, ...pending].filter(m => 
+                                                (m.name?.toLowerCase().includes(query) || m.email?.toLowerCase().includes(query) || m.empId?.toLowerCase().includes(query)) &&
+                                                (!dept || m.department === dept)
+                                            ).sort((a, b) => a.name.localeCompare(b.name));
+
+                                            if (combined.length === 0) {
+                                                return (
+                                                    <div style={{ textAlign: 'center', padding: '4rem', opacity: 0.5, border: '2px dashed var(--border-glass)', borderRadius: '16px' }}>
+                                                        <Users size={40} style={{ marginBottom: '1rem', display: 'block', margin: '0 auto' }} />
+                                                        <div style={{ fontWeight: 900 }}>NO PERSONNEL MATCHING CRITERIA</div>
+                                                    </div>
+                                                );
+                                            }
+
+                                            return (
+                                                <div className="table-responsive-premium" style={{ border: 'none', background: 'transparent' }}>
+                                                    <table className="data-table-premium">
+                                                        <thead>
                                                             <tr>
-                                                                <td colSpan="6" style={{ textAlign: 'center', padding: '3rem', opacity: 0.5, fontWeight: 900 }}>NO ENROLLMENTS FOUND FOR THIS CYCLE</td>
+                                                                <th>STAFF</th>
+                                                                <th>ID</th>
+                                                                <th>DEPARTMENT</th>
+                                                                <th>STATUS</th>
+                                                                <th style={{ textAlign: 'center' }}>PREMIUM</th>
+                                                                <th style={{ textAlign: 'right' }}>ACTIONS</th>
                                                             </tr>
-                                                        ) : (
-                                                            fy.claims.map(s => (
-                                                                <tr key={s._id || s.id}>
-                                                                    <td style={{ fontWeight: 800 }}>
-                                                                        {s.userName}
-                                                                        <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 900, textTransform: 'uppercase', marginTop: '4px' }}>{s.email}</div>
-                                                                    </td>
+                                                        </thead>
+                                                        <tbody>
+                                                            {combined.map(m => (
+                                                                <tr key={`${m._type}_${m._id || m.id}`} style={{ background: m._type === 'pending' ? 'rgba(245,158,11,0.01)' : 'transparent' }}>
                                                                     <td>
-                                                                        <div style={{ fontWeight: 900, letterSpacing: '0.5px' }}>{s.empId || 'ID_PENDING'}</div>
-                                                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>{s.gender || 'N/A'} | DOJ: {s.doj || 'N/A'}</div>
-                                                                    </td>
-                                                                    <td>
-                                                                        <div style={{ fontWeight: 900, fontSize: '0.85rem' }}>{s.department || 'NO_DEPT'}</div>
-                                                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>{s.designation || 'FACULTY'}</div>
-                                                                    </td>
-                                                                    <td>
-                                                                        <div style={{ fontWeight: 900, color: 'var(--text-main)' }}>{s.coverageId}</div>
-                                                                        <div style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 800 }}>
-                                                                            {`+${(s.dependents?.length || 0)} DEPENDENTS`}
+                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                                            <DefaultRoleAvatar role="faculty" name={m.name} seed={m.email} size={36} />
+                                                                            <div style={{ minWidth: 0 }}>
+                                                                                <div style={{ fontWeight: 900, fontSize: '0.95rem' }}>{m.name}</div>
+                                                                                <div style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 900 }}>{m.email}</div>
+                                                                            </div>
                                                                         </div>
                                                                     </td>
-                                                                    <td style={{ fontWeight: 900, color: 'var(--primary)', fontSize: '1.2rem', textAlign: 'center' }}>₹{s.premium?.toLocaleString()}</td>
+                                                                    <td>
+                                                                        <div style={{ fontWeight: 900, letterSpacing: '0.5px' }}>{(m.empId && !m.empId.startsWith('PENDING-')) ? m.empId : ''}</div>
+                                                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>{(m.gender && m.gender !== 'Male' && m.gender !== 'Not Specified') ? m.gender : ''}</div>
+                                                                    </td>
+                                                                    <td>
+                                                                        <div style={{ fontWeight: 900, fontSize: '0.85rem' }}>{(m.department && m.department !== 'Awaiting Assignment') ? m.department : ''}</div>
+                                                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>{m._type === 'enrolled' ? m.designation : ''}</div>
+                                                                    </td>
+                                                                    <td>
+                                                                        {m._type === 'enrolled' ? (
+                                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.65rem', fontWeight: 900, color: '#22c55e', background: 'rgba(34,197,94,0.1)', padding: '2px 10px', borderRadius: '12px', width: 'fit-content' }}>
+                                                                                    <CheckCircle size={10} /> ENROLLED
+                                                                                </div>
+                                                                                <div style={{ fontSize: '0.75rem', fontWeight: 900 }}>{m.coverageId}</div>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.65rem', fontWeight: 900, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '2px 10px', borderRadius: '12px' }}>
+                                                                                <Clock size={10} /> PENDING ACTION
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
                                                                     <td style={{ textAlign: 'center' }}>
-                                                                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-                                                                            <button
-                                                                                className="btn btn-ghost"
-                                                                                style={{ padding: '0.4rem 0.8rem', fontSize: '0.65rem', fontWeight: 900, color: 'var(--primary)', border: '1px solid var(--primary)30' }}
-                                                                                title="Send confirmation email"
-                                                                                onClick={() => sendSingleConfirmation(s)}
-                                                                            >
-                                                                                <Mail size={14} />
-                                                                            </button>
-                                                                            <button
-                                                                                className="btn btn-ghost"
-                                                                                style={{ padding: '0.4rem 0.8rem', color: '#ef4444', border: '1px solid #ef444430' }}
-                                                                                title="Delete enrollment record"
-                                                                                onClick={() => setAlertConfig({
-                                                                                    title: 'DELETE RECORD',
-                                                                                    type: 'danger',
-                                                                                    text: `Delete enrollment record for ${s.userName}? This cannot be undone.`,
-                                                                                    onConfirm: () => deleteRecord(s._id || s.id)
-                                                                                })}
-                                                                            >
-                                                                                <Trash2 size={14} />
-                                                                            </button>
+                                                                        {m._type === 'enrolled' ? (
+                                                                            <div style={{ fontWeight: 900, color: 'var(--primary)', fontSize: '1.1rem' }}>₹{m.premium?.toLocaleString()}</div>
+                                                                        ) : (
+                                                                            <div style={{ fontSize: '0.65rem', fontWeight: 800, opacity: 0.5 }}>Awaiting Enrollment</div>
+                                                                        )}
+                                                                    </td>
+                                                                    <td style={{ textAlign: 'right' }}>
+                                                                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                                                            {m._type === 'enrolled' ? (
+                                                                                <>
+                                                                                    <button className="btn btn-ghost" style={{ padding: '0.4rem 0.8rem', color: 'var(--primary)', border: '1px solid var(--primary)30' }} onClick={() => sendSingleConfirmation(m)} title="Resend confirmation">
+                                                                                        <Mail size={14} />
+                                                                                    </button>
+                                                                                    <button className="btn btn-ghost" style={{ padding: '0.4rem 0.8rem', color: '#ef4444', border: '1px solid #ef444430' }} onClick={() => setAlertConfig({
+                                                                                        title: 'DELETE ENROLLMENT',
+                                                                                        type: 'danger',
+                                                                                        text: `Permanently remove enrollment data for ${m.name}?`,
+                                                                                        onConfirm: () => deleteRecord(m._id)
+                                                                                    })} title="Delete enrollment record">
+                                                                                        <Trash2 size={14} />
+                                                                                    </button>
+                                                                                </>
+                                                                            ) : (
+                                                                                <button 
+                                                                                    className="btn btn-ghost remind-btn" 
+                                                                                    style={{ padding: '0.5rem 1rem', fontSize: '0.7rem', fontWeight: 900, border: '1px solid var(--primary-blue)', color: 'var(--primary-blue)', display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '12px' }} 
+                                                                                    onClick={() => sendSingleConfirmation({ ...m, userName: m.name, isReminder: true })}
+                                                                                >
+                                                                                    <Send size={12} /> REMIND
+                                                                                </button>
+                                                                            )}
                                                                         </div>
                                                                     </td>
                                                                 </tr>
-                                                            ))
-                                                        )}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-
-                                            <div className="mobile-only" style={{ display: 'none', flexDirection: 'column', gap: '1rem', padding: '0 1rem' }}>
-                                                {fy.claims.map(s => (
-                                                    <div key={s._id} className="glass-panel" style={{ padding: '1.2rem' }}>
-                                                        <div style={{ fontWeight: 900 }}>{s.userName}</div>
-                                                        <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>{s.coverageId} (+{s.dependents?.length} Dept)</div>
-                                                        <div style={{ marginTop: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                            <div style={{ fontWeight: 900, color: 'var(--primary)' }}>₹{s.premium?.toLocaleString()}</div>
-                                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                                <button className="btn btn-ghost" style={{ padding: '0.4rem' }} onClick={() => sendSingleConfirmation(s)}><Mail size={14} /></button>
-                                                                <button className="btn btn-ghost" style={{ padding: '0.4rem', color: '#ef4444' }} onClick={() => setAlertConfig({
-                                                                    title: 'DELETE RECORD',
-                                                                    type: 'danger',
-                                                                    text: `Delete enrollment record for ${s.userName}? This cannot be undone.`,
-                                                                    onConfirm: () => deleteRecord(s._id || s.id)
-                                                                })}><Trash2 size={14} /></button>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-
-                                            {(() => {
-                                                const unregQuery = searchTerm?.toLowerCase() || '';
-                                                const unregistered = faculty.filter(f =>
-                                                    f.status !== 'disabled' &&
-                                                    !fy.claims.some(c => c.email === f.email) &&
-                                                    (!unregQuery ||
-                                                        f.name?.toLowerCase().includes(unregQuery) ||
-                                                        f.email?.toLowerCase().includes(unregQuery) ||
-                                                        (f.empId && f.empId.toLowerCase().includes(unregQuery)) ||
-                                                        (f.department && f.department.toLowerCase().includes(unregQuery))
-                                                    )
-                                                );
-                                                if (unregistered.length === 0) return null;
-                                                return (
-                                                    <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
-                                                        <div
-                                                            className="glass-panel"
-                                                            style={{
-                                                                padding: '1rem',
-                                                                display: 'flex',
-                                                                justifyContent: 'space-between',
-                                                                alignItems: 'center',
-                                                                cursor: 'pointer',
-                                                                opacity: 0.8,
-                                                                border: '1px solid var(--border-glass)'
-                                                            }}
-                                                            onClick={() => toggleFolder(`unreg_${fy._id || fy.id}`)}
-                                                        >
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                                                <Users size={16} color="var(--text-muted)" />
-                                                                <div style={{ fontWeight: 900, fontSize: '0.8rem', color: 'var(--text-muted)' }}>UNREGISTERED ACCOUNTS (NOT YET ENROLLED)</div>
-                                                            </div>
-                                                            <ArrowRight size={14} style={{ transform: expandedFolders[`unreg_${fy._id || fy.id}`] ? 'rotate(90deg)' : 'none', transition: 'transform 0.3s ease' }} />
-                                                        </div>
-                                                        {expandedFolders[`unreg_${fy._id || fy.id}`] && (
-                                                            <div className="responsive-auto-grid" style={{ gap: '1rem', marginTop: '1rem' }}>
-                                                                {unregistered.map(r => (
-                                                                    <div key={r._id || r.id} className="glass-panel" style={{ padding: '1.2rem', display: 'flex', gap: '1rem', alignItems: 'center', border: '1px solid var(--border-glass)' }}>
-                                                                        <DefaultRoleAvatar role="faculty" name={r.name} seed={r.email} size={36} />
-                                                                        <div style={{ minWidth: 0, flex: 1 }}>
-                                                                            <div style={{ fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</div>
-                                                                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>{r.email}</div>
-                                                                            <div style={{ fontSize: '0.6rem', color: 'var(--primary)', fontWeight: 900, marginTop: '4px' }}>{r.empId || 'NO_ID'} | {r.department || 'NO_DEPT'}</div>
-                                                                        </div>
-                                                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-                                                                            <div style={{ fontSize: '0.65rem', fontWeight: 900, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '2px 8px', borderRadius: '4px' }}>PENDING</div>
-                                                                            <button className="btn btn-ghost" style={{ padding: '0.3rem 0.6rem', fontSize: '0.6rem', fontWeight: 900, border: '1px solid var(--primary-blue)', color: 'var(--primary-blue)' }} onClick={() => sendSingleConfirmation({ ...r, userName: r.name, isReminder: true })}>
-                                                                                <Send size={10} /> REMIND
-                                                                            </button>
-                                                                        </div>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })()}
-                                        </>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 )}
                             </div>
@@ -1232,7 +1187,7 @@ const AdminDashboard = () => {
                             </button>
                         </div>
                     </div>
-                    <textarea className="glass-panel" style={{ width: '100%', minHeight: '150px', padding: '1.5rem', background: 'rgba(0,0,0,0.2)', color: 'white' }} value={bulkData} onChange={e => setBulkData(e.target.value)} placeholder="Format: Name, Department, Email (Password will be set to Email)" />
+                    <textarea className="glass-panel" style={{ width: '100%', minHeight: '150px', padding: '1.5rem', background: 'rgba(0,0,0,0.2)', color: 'white' }} value={bulkData} onChange={e => setBulkData(e.target.value)} placeholder="Format: Name, Email (Password will be set to Email)" />
 
                     <div style={{ marginTop: '4rem' }}>
                         <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
@@ -1256,7 +1211,7 @@ const AdminDashboard = () => {
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td>{f.department || 'N/A'}</td>
+                                            <td>{f.department && f.department !== 'Awaiting Assignment' ? f.department : ''}</td>
                                             <td style={{ textAlign: 'right' }}>
                                                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                                                     <button
@@ -1267,7 +1222,7 @@ const AdminDashboard = () => {
                                                         {f.status === 'disabled' ? <><Unlock size={16} /> Enable</> : <><Lock size={16} /> Disable</>}
                                                     </button>
                                                     <button className="btn btn-ghost" style={{ padding: '0.5rem', color: '#ef4444', border: '1px solid currentColor' }} onClick={() => setAlertConfig({
-                                                        title: 'DELETE FACULTY',
+                                                        title: 'Delete Staff Account',
                                                         type: 'danger',
                                                         text: `Are you sure you want to permanently delete this faculty account?`,
                                                         onConfirm: () => deleteFacultyUser(f._id || f.id)
@@ -1281,6 +1236,72 @@ const AdminDashboard = () => {
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+            )}
+            {activeTab === 'departments' && (
+                <div className="glass-panel" style={{ padding: 'clamp(1rem, 3vw, 1.6rem)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+                        <div>
+                            <h2 style={{ fontWeight: 900, fontSize: '1.35rem', display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
+                                <Settings size={22} color="var(--primary)" /> Department Management
+                            </h2>
+                            <p style={{ color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.78rem', marginTop: '4px', marginBottom: 0 }}>Configure authorized departments for faculty enrollment</p>
+                        </div>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-muted)' }}>
+                            {departments.length} configured
+                        </div>
+                    </div>
+
+                    <div className="glass-panel" style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', marginBottom: '1rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.8rem' }}>
+                            <h3 style={{ fontSize: '0.95rem', fontWeight: 900, margin: 0 }}>Add Department</h3>
+                            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 700 }}>Shorter card layout for faster scanning</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            <input 
+                                className="glass-panel" 
+                                style={{ flex: '1 1 260px', padding: '0.85rem 1rem', fontWeight: 700, minWidth: '220px' }} 
+                                placeholder="e.g. Computer Science & Engineering" 
+                                value={newDeptName} 
+                                onChange={e => setNewDeptName(e.target.value)} 
+                                onKeyPress={e => e.key === 'Enter' && addDepartment()}
+                            />
+                            <button className="btn btn-primary" style={{ padding: '0 1.25rem', minHeight: '44px' }} onClick={addDepartment}>
+                                <Plus size={18} /> ADD
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.75rem' }}>
+                        {departments.length === 0 ? (
+                            <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '2rem', opacity: 0.5, fontWeight: 900, border: '2px dashed var(--border-glass)' }}>
+                                No Departments Configured
+                            </div>
+                        ) : (
+                            departments.map(dept => (
+                                <div key={dept._id} className="glass-panel" style={{ padding: '0.85rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', background: 'var(--bg-glass)', border: '1px solid var(--border-glass)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
+                                        <div style={{ width: '34px', height: '34px', background: 'rgba(99, 102, 241, 0.1)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)', flexShrink: 0 }}>
+                                            <Briefcase size={17} />
+                                        </div>
+                                        <div style={{ fontWeight: 900, fontSize: '0.92rem', lineHeight: 1.25, wordBreak: 'break-word' }}>{dept.name}</div>
+                                    </div>
+                                    <button 
+                                        className="btn btn-ghost" 
+                                        style={{ color: '#ef4444', border: '1px solid #ef444430', padding: '0.5rem', minWidth: '40px', height: '40px', flexShrink: 0 }} 
+                                        onClick={() => setAlertConfig({
+                                            title: 'Delete Department',
+                                            type: 'danger',
+                                            text: `Are you sure you want to delete ${dept.name}? This will not affect existing claims but new faculty won't be able to select it.`,
+                                            onConfirm: () => deleteDepartment(dept._id)
+                                        })}
+                                    >
+                                        <Trash2 size={18} />
+                                    </button>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
             )}
@@ -1299,11 +1320,11 @@ const AdminDashboard = () => {
 
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2.5rem' }}>
                             <div className="f-group">
-                                <label style={{ fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.8rem', display: 'block' }}>CYCLE IDENTIFIER</label>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.8rem', display: 'block' }}>Cycle Identifier</label>
                                 <input className="glass-panel" style={{ width: '100%', padding: '1rem', fontWeight: 700 }} value={newFY.name} onChange={e => setNewFY({ ...newFY, name: e.target.value })} placeholder="e.g. 2026-2027" />
                             </div>
                             <div className="f-group">
-                                <label style={{ fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.8rem', display: 'block' }}>SUBMISSION DEADLINE</label>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 900, marginBottom: '0.8rem', display: 'block' }}>Submission Deadline</label>
                                 <input type="date" className="glass-panel" style={{ width: '100%', padding: '1rem', fontWeight: 700 }} value={newFY.lastSubmissionDate} onChange={e => setNewFY({ ...newFY, lastSubmissionDate: e.target.value })} />
                             </div>
                         </div>
@@ -1322,7 +1343,7 @@ const AdminDashboard = () => {
                                     <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.02)', opacity: tempPolicy.allowSpouse ? 1 : 0.5, transition: 'opacity 0.3s' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: tempPolicy.allowSpouse ? '1.5rem' : 0, alignItems: 'center', transition: 'margin 0.3s' }}>
                                             <span style={{ fontSize: '0.8rem', fontWeight: 900 }}>SPOUSE / PARTNER</span>
-                                            <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '32px', fontSize: '0.65rem', fontWeight: 900, background: tempPolicy.allowSpouse ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: tempPolicy.allowSpouse ? '#22c55e' : '#ef4444', border: '1px solid currentColor', borderRadius: '8px' }} onClick={() => setTempPolicy({ ...tempPolicy, allowSpouse: !tempPolicy.allowSpouse })}>
+                                            <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '32px', fontSize: '0.65rem', fontWeight: 900, background: tempPolicy.allowSpouse ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: tempPolicy.allowSpouse ? '#22c55e' : '#ef4444', border: '1px solid currentColor', borderRadius: '12px' }} onClick={() => setTempPolicy({ ...tempPolicy, allowSpouse: !tempPolicy.allowSpouse })}>
                                                 {tempPolicy.allowSpouse ? 'ENABLED' : 'DISABLED'}
                                             </button>
                                         </div>
@@ -1336,7 +1357,7 @@ const AdminDashboard = () => {
                                     <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.02)', opacity: tempPolicy.allowChildren ? 1 : 0.5, transition: 'opacity 0.3s' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: tempPolicy.allowChildren ? '1.5rem' : 0, alignItems: 'center', transition: 'margin 0.3s' }}>
                                             <span style={{ fontSize: '0.8rem', fontWeight: 900 }}>DEPENDENT CHILDREN</span>
-                                            <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '32px', fontSize: '0.65rem', fontWeight: 900, background: tempPolicy.allowChildren ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: tempPolicy.allowChildren ? '#22c55e' : '#ef4444', border: '1px solid currentColor', borderRadius: '8px' }} onClick={() => setTempPolicy({ ...tempPolicy, allowChildren: !tempPolicy.allowChildren })}>
+                                            <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '32px', fontSize: '0.65rem', fontWeight: 900, background: tempPolicy.allowChildren ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: tempPolicy.allowChildren ? '#22c55e' : '#ef4444', border: '1px solid currentColor', borderRadius: '12px' }} onClick={() => setTempPolicy({ ...tempPolicy, allowChildren: !tempPolicy.allowChildren })}>
                                                 {tempPolicy.allowChildren ? 'ENABLED' : 'DISABLED'}
                                             </button>
                                         </div>
@@ -1356,7 +1377,7 @@ const AdminDashboard = () => {
                                     <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.02)', opacity: tempPolicy.allowParents ? 1 : 0.5, transition: 'opacity 0.3s' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: tempPolicy.allowParents ? '1.5rem' : 0, alignItems: 'center', transition: 'margin 0.3s' }}>
                                             <span style={{ fontSize: '0.8rem', fontWeight: 900 }}>DEPENDENT PARENTS</span>
-                                            <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '32px', fontSize: '0.65rem', fontWeight: 900, background: tempPolicy.allowParents ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: tempPolicy.allowParents ? '#22c55e' : '#ef4444', border: '1px solid currentColor', borderRadius: '8px' }} onClick={() => setTempPolicy({ ...tempPolicy, allowParents: !tempPolicy.allowParents })}>
+                                            <button className="btn btn-ghost" style={{ padding: '0 0.8rem', height: '32px', fontSize: '0.65rem', fontWeight: 900, background: tempPolicy.allowParents ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: tempPolicy.allowParents ? '#22c55e' : '#ef4444', border: '1px solid currentColor', borderRadius: '12px' }} onClick={() => setTempPolicy({ ...tempPolicy, allowParents: !tempPolicy.allowParents })}>
                                                 {tempPolicy.allowParents ? 'ENABLED' : 'DISABLED'}
                                             </button>
                                         </div>
@@ -1375,7 +1396,7 @@ const AdminDashboard = () => {
                                     </div>
                                 </div>
                                 <button className="btn btn-primary" style={{ width: '100%', marginTop: '1.5rem', fontWeight: 900, letterSpacing: '1px' }} onClick={addPolicyToFY}>
-                                    {tempPolicy.id ? '✓ UPDATE PLAN' : '+ COMMIT PLAN'}
+                                    {tempPolicy.id ? '✓ UPDATE PLAN' : '+ ADD PLAN'}
                                 </button>
                             </div>
 
@@ -1444,7 +1465,7 @@ const AdminDashboard = () => {
                         <div style={{ width: '80px', height: '80px', background: 'rgba(99, 102, 241, 0.1)', borderRadius: '20px', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 2rem' }}>
                             <Mail size={40} />
                         </div>
-                        <h2 style={{ fontSize: '2rem', fontWeight: 900, marginBottom: '1rem', letterSpacing: '-1px' }}>BATCH CONFIRMATION</h2>
+                        <h2 style={{ fontSize: '2rem', fontWeight: 900, marginBottom: '1rem', letterSpacing: '-1px' }}>Batch Confirmation</h2>
                         <p style={{ color: 'var(--text-muted)', fontWeight: 700, marginBottom: '3rem', lineHeight: 1.6 }}>You are about to dispatch automated enrollment receipts to all selected participants. This action cannot be undone.</p>
 
                         <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap' }}>
@@ -1464,10 +1485,49 @@ const AdminDashboard = () => {
                     <Loader2 className="animate-spin" size={60} color="var(--primary)" />
                 </div>
             )}
+
+            {mailingProgress.active && (
+                <div className="overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(20px)' }}>
+                    <div className="glass-panel" style={{ width: '90%', maxWidth: '500px', padding: '3rem', textAlign: 'center', border: '1px solid var(--primary)40' }}>
+                        <div style={{ width: '64px', height: '64px', background: 'var(--primary-glow)', borderRadius: '16px', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 2rem', border: '1px solid var(--primary)30' }}>
+                            <Mail className={ mailingProgress.current < mailingProgress.total ? "animate-pulse" : "" } size={32} />
+                        </div>
+                        
+                        <h2 style={{ fontWeight: 900, textTransform: 'uppercase', letterSpacing: '2px', fontSize: '1.2rem', marginBottom: '0.5rem' }}>
+                            {mailingProgress.current >= mailingProgress.total && mailingProgress.total > 0 ? 'DISPATCH COMPLETE' : 'SENDING NOTIFICATIONS'}
+                        </h2>
+                        <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '2.5rem' }}>{mailingProgress.message}</p>
+                        
+                        <div style={{ background: 'rgba(255,255,255,0.05)', height: '12px', borderRadius: '6px', overflow: 'hidden', marginBottom: '1.5rem', border: '1px solid var(--border-glass)' }}>
+                            <div style={{ 
+                                width: `${mailingProgress.total > 0 ? (mailingProgress.current / mailingProgress.total) * 100 : 0}%`, 
+                                height: '100%', 
+                                background: 'linear-gradient(90deg, #6366f1 0%, #4338ca 100%)',
+                                transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                                borderRadius: '6px'
+                            }} />
+                        </div>
+                        
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)' }}>
+                                PROCESSED: <b style={{ color: 'var(--text-main)' }}>{mailingProgress.current} / {mailingProgress.total}</b>
+                            </div>
+                            <div style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--primary)' }}>
+                                {mailingProgress.total > 0 ? Math.round((mailingProgress.current / mailingProgress.total) * 100) : 0}%
+                            </div>
+                        </div>
+
+                        {mailingProgress.current >= mailingProgress.total && mailingProgress.total > 0 && (
+                            <button className="btn btn-primary" style={{ width: '100%', marginTop: '2.5rem', padding: '1.2rem', fontWeight: 900 }} onClick={() => setMailingProgress({ ...mailingProgress, active: false })}>
+                                DISMISS REPORT
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
         </div >
     );
 };
 
 export default AdminDashboard;
-
 

@@ -23,6 +23,7 @@ export const AppProvider = ({ children }) => {
   const [activeFY, setActiveFY] = useState(null);
   const [activeTab, setActiveTabState] = useState(localStorage.getItem('activeTab') || 'overview');
   const [socket, setSocket] = useState(null);
+  const [departments, setDepartments] = useState([]);
   const isDemoMode = false;
 
   const setActiveTab = (tab) => {
@@ -57,6 +58,8 @@ export const AppProvider = ({ children }) => {
           const fyRes = await api.get('/financialYears');
           const active = fyRes.data.find((fy) => fy.enabled && !fy.isArchived);
           setActiveFY(active || null);
+          const deptRes = await api.get('/departments').catch(() => ({ data: [] }));
+          setDepartments(deptRes.data);
         } catch (err) {
           console.error("Token invalid or server down", err);
           localStorage.removeItem('token');
@@ -134,7 +137,7 @@ export const AppProvider = ({ children }) => {
   return (
     <AppContext.Provider value={{ 
       user, loading, theme, toggleTheme, activeFY, login, logout, updateProfile,
-      activeTab, setActiveTab, socket, isDemoMode, DEMO_FACULTY
+      activeTab, setActiveTab, socket, departments, setDepartments, isDemoMode, DEMO_FACULTY
     }}>
       {children}
     </AppContext.Provider>

@@ -5,7 +5,7 @@ import { ShieldCheck, Loader2, Key, User } from 'lucide-react';
 import DefaultRoleAvatar from '../components/DefaultRoleAvatar';
 
 const Settings = () => {
-    const { user, updateProfile } = useApp();
+    const { user, updateProfile, departments } = useApp();
     const [profile, setProfile] = useState({
         name: user?.name || '',
         email: user?.email || '',
@@ -91,12 +91,11 @@ const Settings = () => {
 
                     <div style={{ display: 'grid', gap: '1.5rem' }}>
                         <div className="responsive-auto-grid" style={{ gap: '1rem' }}>
-                            { [
-                                { lab: 'FULL NAME', key: 'name', solid: user?.role !== 'admin' },
+                            {[
+                                { lab: 'FULL NAME', key: 'name' },
                                 { lab: 'EMAIL ADDRESS', key: 'email', solid: user?.role !== 'admin', span: true },
                                 { lab: 'EMPLOYEE ID', key: 'empId' },
                                 { lab: 'PHONE NUMBER', key: 'phone' },
-                                { lab: 'DEPARTMENT', key: 'department', up: true, solid: user?.role !== 'admin' },
                                 { lab: 'DESIGNATION', key: 'designation' }
                             ].map(f => (
                                 <div key={f.key} style={{ gridColumn: f.span ? 'span 2' : 'auto' }}>
@@ -111,6 +110,20 @@ const Settings = () => {
                                     />
                                 </div>
                             ))}
+                            <div>
+                                <label style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>DEPARTMENT</label>
+                                <select 
+                                    className="input-premium" 
+                                    style={{ width: '100%' }} 
+                                    value={profile.department} 
+                                    onChange={e => setProfile({...profile, department: e.target.value})}
+                                >
+                                    <option value="">Select Department</option>
+                                    {departments.map(d => (
+                                        <option key={d._id} value={d.name}>{d.name}</option>
+                                    ))}
+                                </select>
+                            </div>
                             <div>
                                 <label style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>DATE OF JOINING</label>
                                 <input type="date" className="input-premium" style={{ width: '100%', background: 'transparent' }} value={profile.doj} onChange={e => setProfile({...profile, doj: e.target.value})} />

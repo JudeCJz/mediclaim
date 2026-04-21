@@ -66,6 +66,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/claims', require('./routes/claims'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/financialYears', require('./routes/financialYears'));
+app.use('/api/departments', require('./routes/departments'));
 app.use('/api/logs', require('./routes/logs'));
 app.use('/api/mail', require('./routes/mail').router);
 

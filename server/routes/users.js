@@ -53,30 +53,35 @@ router.post('/bulk-register', adminAuth, async (req, res) => {
     }
 
     const parts = row.split(',').map((item) => item.trim());
-    if (parts.length < 3) {
+    if (parts.length < 2) {
       skipped += 1;
       continue;
     }
 
-    const [name, department, emailPart, empIdInput, designation = '', phone = ''] = parts;
+    let name, department, emailPart, empIdInput, designation = '', phone = '';
+    
+    if (parts.length === 2) {
+      // Format: Name, Email
+      [name, emailPart] = parts;
+      department = '';
+      empIdInput = '';
+    } else {
+      // Format: Name, Department, Email, [ID, Designation, Phone]
+      [name, department, emailPart, empIdInput, designation = '', phone = ''] = parts;
+    }
+
     const email = emailPart?.trim().toLowerCase();
-    // Use the provided employee ID, or generate a temporary placeholder to satisfy MongoDB unique constraints
     const empId = empIdInput ? empIdInput.trim() : `PENDING-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
     // Skip the CSV header row (case-insensitive check)
-    if (
-      name.toLowerCase() === 'name' &&
-      department.toLowerCase() === 'department' &&
-      email.toLowerCase() === 'email'
-    ) {
-      continue;
-    }
+    const isHeader = (name.toLowerCase() === 'name' && (email.toLowerCase() === 'email' || department.toLowerCase() === 'department'));
+    if (isHeader) continue;
 
-    if (!name || !department || !email) {
+    if (!name || !email) {
       skipped += 1;
       continue;
     }
-
+    
     // Basic email format check
     if (!email.includes('@')) {
       skipped += 1;

@@ -5,7 +5,7 @@ import { Heart, UserPlus, Trash2, CheckCircle, ShieldCheck, Loader2, Save, Print
 import { generateEnrollmentPDF } from '../utils/pdfGenerator';
 
 const FacultyDashboard = () => {
-    const { user, isDemoMode, activeFY, socket, activeTab } = useApp();
+    const { user, isDemoMode, activeFY, socket, activeTab, departments } = useApp();
     const [years, setYears] = useState([]);
     const [selectedFY, setSelectedFY] = useState(null);
     const [profile, setProfile] = useState({ name: '', empId: '', phone: '', department: '', designation: '', doj: '', gender: 'Male' });
@@ -124,9 +124,9 @@ const FacultyDashboard = () => {
             setProfile({ 
                 name: sub.userName || user.name || '',
                 email: sub.email || user.email || '',
-                empId: (sub.empId === sub.email) ? '' : (sub.empId || ''), 
+                empId: (sub.empId === sub.email || (sub.empId && sub.empId.startsWith('PENDING-'))) ? '' : (sub.empId || ''), 
                 phone: sub.phone || user.phone || '', 
-                department: sub.department || user.department || '', 
+                department: (sub.department && sub.department !== 'Awaiting Assignment') ? sub.department : (user.department && user.department !== 'Awaiting Assignment' ? user.department : ''), 
                 designation: sub.designation || '',
                 doj: sub.doj || '',
                 gender: sub.gender || 'Male'
@@ -142,9 +142,9 @@ const FacultyDashboard = () => {
             setProfile({ 
                 name: user?.name || '',
                 email: user?.email || '',
-                empId: (user?.empId === user?.email) ? '' : (user?.empId || ''), 
+                empId: (user?.empId === user?.email || (user?.empId && user?.empId.startsWith('PENDING-'))) ? '' : (user?.empId || ''), 
                 phone: user?.phone || '', 
-                department: (user?.department || '').toUpperCase(), 
+                department: (user?.department && user?.department !== 'Awaiting Assignment') ? user.department : '', 
                 designation: user?.designation || '',
                 doj: user?.doj || '',
                 gender: user?.gender || 'Male'
@@ -351,10 +351,11 @@ const FacultyDashboard = () => {
                     const sub = userSubmissions[yId];
                     const expired = y.deadline && new Date() > new Date(y.deadline);
                     const locked = !y.enabled || expired || y.isArchived;
-                    const availableFg = '#15803d';
-                    const availableBg = '#dcfce7';
-                    const color = locked ? '#94a3b8' : sub ? 'var(--text-main)' : availableFg;
-                    const bgColor = locked ? 'var(--bg-main)' : sub ? 'var(--nav-active-bg)' : availableBg;
+                    const availableFg = '#065f46';
+                    const availableBg = '#ecfdf5';
+                    const color = locked ? '#64748b' : sub ? 'var(--accent-blue-text)' : availableFg;
+                    const bgColor = locked ? 'var(--bg-surface)' : sub ? 'var(--accent-blue-bg)' : availableBg;
+                    const borderColor = locked ? 'transparent' : sub ? 'rgba(24, 95, 165, 0.2)' : 'rgba(16, 185, 129, 0.2)';
                     
                     return (
                         <div key={yId} className="glass-panel" onClick={() => enterYear(y)} style={{ 
@@ -369,16 +370,18 @@ const FacultyDashboard = () => {
                         }}>
                             
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div style={{ width: '32px', height: '32px', background: bgColor, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px' }}>
+                                <div style={{ width: '32px', height: '32px', background: bgColor, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px' }}>
                                     <Briefcase size={16} color={color} />
                                 </div>
                                 <div style={{ 
-                                    padding: '4px 10px', 
+                                    padding: '6px 12px', 
                                     background: bgColor, 
-                                    fontSize: '12px', 
-                                    fontWeight: 500, 
+                                    border: `1.5px solid ${borderColor}`,
+                                    fontSize: '11px', 
+                                    fontWeight: 700, 
                                     color: color,
-                                    borderRadius: '20px'
+                                    borderRadius: '10px',
+                                    letterSpacing: '0.5px'
                                 }}>
                                     {locked ? 'CLOSED' : sub ? 'ENROLLED' : 'AVAILABLE'}
                                 </div>
@@ -391,7 +394,7 @@ const FacultyDashboard = () => {
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', paddingTop: '1rem', borderTop: 'var(--border)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div style={{ fontSize: '13px', fontWeight: 400, color: 'var(--text-muted)' }}>DEADLINE: <span style={{ color: expired ? 'var(--danger)' : 'var(--text-main)' }}>{y.deadline ? new Date(y.deadline).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'NO_LIMIT'}</span></div>
+                                    <div style={{ fontSize: '13px', fontWeight: 400, color: 'var(--text-muted)' }}>Deadline: <span style={{ color: expired ? 'var(--danger)' : 'var(--text-main)' }}>{y.deadline ? new Date(y.deadline).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'No Limit'}</span></div>
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: sub ? '1fr 1fr' : '1fr', gap: '0.5rem' }}>
                                     {sub && (
@@ -404,8 +407,10 @@ const FacultyDashboard = () => {
                                         </button>
                                     )}
                                     <div 
-                                        style={{ height: '34px', borderRadius: '8px', background: bgColor, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: color, fontSize: '11px', fontWeight: 500, cursor: 'pointer' }}
+                                        style={{ height: '36px', borderRadius: '12px', background: bgColor, border: `1.5px solid ${borderColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: color, fontSize: '12px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s ease', textTransform: 'uppercase', letterSpacing: '0.5px' }}
                                         onClick={() => enterYear(y)}
+                                        onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.filter = 'brightness(1.05)'; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.filter = 'none'; }}
                                     >
                                         {locked ? <ShieldCheck size={14} /> : sub ? <Edit size={14} /> : <UserPlus size={14} />}
                                         {locked ? 'VIEW' : sub ? 'EDIT' : 'ENTER'}
@@ -454,8 +459,8 @@ const FacultyDashboard = () => {
                                     <button className="btn btn-ghost" style={{ padding: '6px 14px', fontSize: '11px', color: 'var(--primary-blue)', border: '0.5px solid #B5D4F4' }} onClick={() => generateEnrollmentPDF({ submission: item, activeFY: { name: item.fyName || item.fyId } })}>
                                         <Download size={14} /> PDF
                                     </button>
-                                    <div style={{ padding: '4px 10px', background: 'var(--nav-active-bg)', color: 'var(--text-main)', fontWeight: 500, fontSize: '12px', borderRadius: '4px' }}>
-                                        ARCHIVED
+                                    <div style={{ padding: '4px 10px', background: 'var(--nav-active-bg)', color: 'var(--text-main)', fontWeight: 500, fontSize: '12px', borderRadius: '12px' }}>
+                                        Archived
                                     </div>
                                 </div>
                             </div>
@@ -495,11 +500,10 @@ const FacultyDashboard = () => {
                         </h2>
                         <div className="responsive-auto-grid" style={{ gap: '1rem' }}>
                             {[
-                                { lab: 'FULL NAME', key: 'name', solid: true },
+                                { lab: 'FULL NAME', key: 'name' },
                                 { lab: 'EMAIL ADDRESS', key: 'email', solid: true },
                                 { lab: 'EMPLOYEE ID', key: 'empId' },
                                 { lab: 'PHONE NUMBER', key: 'phone' },
-                                { lab: 'DEPARTMENT', key: 'department', up: true, solid: true },
                                 { lab: 'DESIGNATION', key: 'designation' }
                             ].map(f => (
                                 <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
@@ -508,12 +512,28 @@ const FacultyDashboard = () => {
                                         disabled={isLocked || f.solid} 
                                         autoComplete="off" 
                                         className="input-premium" 
+                                        placeholder=""
                                         style={{ width: '100%', background: f.solid ? 'var(--bg-surface)' : 'transparent', cursor: f.solid ? 'not-allowed' : 'text' }} 
                                         value={profile[f.key]} 
                                         onChange={e => setProfile({...profile, [f.key]: f.up ? e.target.value.toUpperCase() : e.target.value})} 
                                     />
                                 </div>
                             ))}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                <label style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)' }}>DEPARTMENT <span style={{ color: 'var(--danger)' }}>*</span></label>
+                                <select 
+                                    disabled={isLocked} 
+                                    className="input-premium" 
+                                    style={{ width: '100%' }} 
+                                    value={profile.department} 
+                                    onChange={e => setProfile({...profile, department: e.target.value})}
+                                >
+                                    <option value="">Select Department</option>
+                                    {departments.map(d => (
+                                        <option key={d._id} value={d.name}>{d.name}</option>
+                                    ))}
+                                </select>
+                            </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                                 <label style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)' }}>GENDER <span style={{ color: 'var(--danger)' }}>*</span></label>
                                 <select disabled={isLocked} className="input-premium" style={{ width: '100%' }} value={profile.gender} onChange={e => setProfile({...profile, gender: e.target.value})}>
@@ -531,8 +551,8 @@ const FacultyDashboard = () => {
                     <section className="glass-panel" style={{ padding: '1rem 1.25rem', background: 'var(--bg-surface)', border: 'var(--border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
                             <h2 style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '10px', fontSize: '15px', color: 'var(--text-main)' }}><Heart size={20} color="var(--primary)" /> Choose Your Plan</h2>
-                            <div style={{ background: 'var(--bg-card)', padding: '10px 18px', border: 'var(--border)', borderRadius: '8px', textAlign: 'right' }}>
-                                <div style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)' }}>ESTIMATED_PREMIUM</div>
+                            <div style={{ background: 'var(--bg-card)', padding: '10px 18px', border: 'var(--border)', borderRadius: '12px', textAlign: 'right' }}>
+                                <div style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)' }}>Estimated Premium</div>
                                 <div style={{ fontSize: '22px', fontWeight: 500, color: 'var(--text-main)' }}>₹{calculatePremium().toLocaleString()}</div>
                             </div>
                         </div>
@@ -593,7 +613,7 @@ const FacultyDashboard = () => {
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                                                 <label style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)' }}>FULL NAME</label>
-                                                <input disabled={isLocked} autoComplete="off" className="input-premium" placeholder="Full Legal Name" value={d.name} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, name: e.target.value} : x))} />
+                                                <input disabled={isLocked} autoComplete="off" className="input-premium" placeholder="" value={d.name} onChange={e => setDependents(dependents.map(x=>x.id===d.id ? {...x, name: e.target.value} : x))} />
                                             </div>
                                             {d.type === 'parent' && (
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>

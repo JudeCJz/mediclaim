@@ -32,4 +32,5 @@ dist-ssr
 
 # Local database and caches
 mongodb_data/
+test-results/
 .npm

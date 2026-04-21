@@ -83,6 +83,9 @@ const Sidebar = () => {
               <button onClick={() => handleTabClick('mail')} className={isTabActive('mail') ? "sidebar-item sidebar-item-active" : "sidebar-item"}>
                 <Mail size={15} /> Communications
               </button>
+              <button onClick={() => handleTabClick('departments')} className={isTabActive('departments') ? "sidebar-item sidebar-item-active" : "sidebar-item"}>
+                <SettingsIcon size={15} /> Departments
+              </button>
             </>
           )}
 

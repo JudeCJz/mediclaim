@@ -8,10 +8,36 @@ const User = require('../models/User');
 const FinancialYear = require('../models/FinancialYear');
 const EmailTemplate = require('../models/EmailTemplate');
 
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const resend = (process.env.RESEND_API_KEY && process.env.USE_SMTP_ONLY !== 'true') ? new Resend(process.env.RESEND_API_KEY) : null;
+if (process.env.RESEND_API_KEY && process.env.USE_SMTP_ONLY !== 'true') {
+    console.log('INFO: Resend API detected. Note: Without a verified domain, you can only send emails to the account owner.');
+}
 
+
+let cachedTransporter = null;
+const BULK_MAIL_CONCURRENCY = Math.max(1, Number(process.env.BULK_MAIL_CONCURRENCY || 3));
+
+const runConcurrent = async (items, worker, concurrency = BULK_MAIL_CONCURRENCY) => {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  const runWorker = async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => runWorker())
+  );
+
+  return results;
+};
 
 const getTransporter = async () => {
+  if (cachedTransporter) return cachedTransporter;
+
   const {
     SMTP_HOST,
     SMTP_PORT,
@@ -63,6 +89,7 @@ const getTransporter = async () => {
     }
   }
 
+  cachedTransporter = transporter;
   return transporter;
 };
 
@@ -75,7 +102,7 @@ const sendMail = async ({ to, subject, html }) => {
       console.log('Dispatching via RESEND API...');
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('RESEND_TIMEOUT')), 25000));
       
-      const { data, error } = await Promise.race([
+      const { error } = await Promise.race([
         resend.emails.send({
           from: process.env.SMTP_FROM_RESEND || 'onboarding@resend.dev',
           to: recipients,
@@ -89,10 +116,15 @@ const sendMail = async ({ to, subject, html }) => {
       return { accepted: [to], response: 'Success via Resend' };
     } catch (apiErr) {
       console.error('RESEND API FAILURE:', apiErr.message);
+      if (apiErr.message.toLowerCase().includes('restriction') || apiErr.message.toLowerCase().includes('unauthorized')) {
+        console.warn('CRITICAL: Resend is likely restricted to verified domains. Falling back to SMTP if configured...');
+      }
       if (apiErr.message === 'RESEND_TIMEOUT') {
         throw new Error('Mail provider timed out. Check API key or network.');
       }
-      throw new Error(`Resend Error: ${apiErr.message}`);
+      // If Resend fails due to restriction, we can't easily fallback mid-function without refactoring, 
+      // but we will suggest configured SMTP in the error msg.
+      throw new Error(`Resend Error: ${apiErr.message}. If this is a domain restriction, set USE_SMTP_ONLY=true in your .env to use Gmail/SMTP instead.`);
     }
   }
 
@@ -154,7 +186,9 @@ router.post('/dispatch-confirmations', adminAuth, async (req, res) => {
   }
 
   try {
+    const io = req.app.get('io');
     const query = { archived: { $ne: true } };
+
     if (claimIds && Array.isArray(claimIds)) {
         query._id = { $in: claimIds };
     } else {
@@ -162,14 +196,15 @@ router.post('/dispatch-confirmations', adminAuth, async (req, res) => {
     }
 
     const submissions = await Claim.find(query);
-    const results = [];
+    let processed = 0;
 
-    for (const claim of submissions) {
+    const results = await runConcurrent(submissions, async (claim) => {
       const spouse = claim.dependents?.find(d => d.type === 'spouse');
+
       const children = claim.dependents?.filter(d => d.type === 'child');
       const parents = claim.dependents?.filter(d => d.type === 'parent');
 
-      results.push(await sendMail({
+      const result = await sendMail({
         to: [claim.email],
         subject: `[FINALIZED] Mediclaim Enrollment Confirmation - FY ${claim.fyName}`,
         html: `
@@ -207,8 +242,18 @@ router.post('/dispatch-confirmations', adminAuth, async (req, res) => {
             <p style="font-size: 0.85rem; color: #64748b; margin-top: 50px;">Note: This is an automated notification. If you find any discrepancies, please contact HR/Administration immediately.</p>
           </div>
         `
-      }));
-    }
+      });
+
+      processed += 1;
+      if (io) {
+          io.emit('MAIL_PROGRESS', { 
+              current: processed, 
+              total: submissions.length, 
+              message: `Dispatching confirmations for FY ${submissions[0]?.fyName || 'Active'}...` 
+          });
+      }
+      return result;
+    });
 
     res.json({
       message: `Successfully dispatched ${submissions.length} confirmation email(s).`,
@@ -226,7 +271,9 @@ router.post('/announce-cycle', adminAuth, async (req, res) => {
     if (!fyId) return res.status(400).json({ msg: 'fyId is required' });
 
     try {
+        const io = req.app.get('io');
         const fy = await FinancialYear.findById(fyId);
+
         if (!fy) return res.status(404).json({ msg: 'Financial cycle not found' });
 
         const users = await User.find({ role: { $in: ['faculty', 'hod'] }, status: 'active' });
@@ -234,33 +281,45 @@ router.post('/announce-cycle', adminAuth, async (req, res) => {
 
         if (emails.length === 0) return res.json({ message: 'No recipients found.' });
 
-        await sendMail({
-            to: emails,
-            subject: `[ACTION REQUIRED] Mediclaim Enrollment Open: FY ${fy.name}`,
-            html: `
-                <div style="font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #1a1a1a; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; padding: 40px; border-top: 8px solid #22c55e;">
-                    <h1 style="color: #22c55e; margin-bottom: 20px; font-weight: 900; text-transform: uppercase;">New Enrollment Cycle</h1>
-                    <p style="font-size: 1.1rem;">Greetings,</p>
-                    <p>The institutional administration has opened a new Mediclaim insurance enrollment cycle for <strong>Financial Year ${fy.name}</strong>.</p>
-                    
-                    <div style="background: #f0fdf4; padding: 25px; border-radius: 8px; margin: 30px 0; border: 1px solid #bbf7d0; text-align: center;">
-                        <h2 style="margin: 0; color: #166534; font-size: 1.4rem;">FY ${fy.name} Is Now Live</h2>
-                        <p style="margin: 10px 0 0; color: #15803d; font-weight: 700;">Deadline: ${fy.lastSubmissionDate ? new Date(fy.lastSubmissionDate).toLocaleDateString() : 'NO LIMIT'}</p>
-                    </div>
+        let sentCount = 0;
+        await runConcurrent(emails, async (email) => {
+            await sendMail({
+                to: [email],
+                subject: `[ACTION REQUIRED] Mediclaim Enrollment Open: FY ${fy.name}`,
+                html: `
+                    <div style="font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #1a1a1a; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; padding: 40px; border-top: 8px solid #22c55e;">
+                        <h1 style="color: #22c55e; margin-bottom: 20px; font-weight: 900; text-transform: uppercase;">New Enrollment Cycle</h1>
+                        <p style="font-size: 1.1rem;">Greetings,</p>
+                        <p>The institutional administration has opened a new Mediclaim insurance enrollment cycle for <strong>Financial Year ${fy.name}</strong>.</p>
+                        
+                        <div style="background: #f0fdf4; padding: 25px; border-radius: 8px; margin: 30px 0; border: 1px solid #bbf7d0; text-align: center;">
+                            <h2 style="margin: 0; color: #166534; font-size: 1.4rem;">FY ${fy.name} Is Now Live</h2>
+                            <p style="margin: 10px 0 0; color: #15803d; font-weight: 700;">Deadline: ${fy.lastSubmissionDate ? new Date(fy.lastSubmissionDate).toLocaleDateString() : 'NO LIMIT'}</p>
+                        </div>
 
-                    <p>Please log in to the portal to manage your policy selection and add your eligible dependents. Failure to submit before the deadline may result in a disruption of coverage.</p>
-                    
-                    <div style="margin: 30px 0; text-align: center;">
-                        <a href="${process.env.CLIENT_ORIGIN || '#'}" style="background: #22c55e; color: white; padding: 15px 35px; text-decoration: none; border-radius: 5px; font-weight: 900; text-transform: uppercase; display: inline-block;">Log In To Dashboard</a>
-                    </div>
+                        <p>Please log in to the portal to manage your policy selection and add your eligible dependents. Failure to submit before the deadline may result in a disruption of coverage.</p>
+                        
+                        <div style="margin: 30px 0; text-align: center;">
+                            <a href="${process.env.CLIENT_ORIGIN || '#'}" style="background: #22c55e; color: white; padding: 15px 35px; text-decoration: none; border-radius: 5px; font-weight: 900; text-transform: uppercase; display: inline-block;">Log In To Dashboard</a>
+                        </div>
 
-                    <p style="font-size: 0.85rem; color: #64748b; margin-top: 50px; border-top: 1px solid #f1f5f9; padding-top: 20px;">This is an automated institutional notification. No reply is required.</p>
-                </div>
-            `
+                        <p style="font-size: 0.85rem; color: #64748b; margin-top: 50px; border-top: 1px solid #f1f5f9; padding-top: 20px;">This is an automated institutional notification. No reply is required.</p>
+                    </div>
+                `
+            });
+            sentCount++;
+            if (io) {
+                io.emit('MAIL_PROGRESS', { 
+                    current: sentCount, 
+                    total: emails.length, 
+                    message: `Broadcasting cycle announcement to institutional members...` 
+                });
+            }
         });
 
-        res.json({ message: `Announcement dispatched to ${emails.length} members.` });
+        res.json({ message: `Announcement dispatched to ${sentCount} members.` });
     } catch (err) {
+
         console.error(err);
         res.status(500).json({ msg: 'Failed to broadcast announcement' });
     }
@@ -372,7 +431,9 @@ router.post('/dispatch-custom', adminAuth, async (req, res) => {
   if (!templateId && !htmlOverride) return res.status(400).json({ msg: 'templateId or html required' });
 
   try {
+    const io = req.app.get('io');
     let template = null;
+
     if (templateId && templateId !== 'blank' && templateId !== 'undefined') {
         try {
             template = await EmailTemplate.findById(templateId);
@@ -399,7 +460,18 @@ router.post('/dispatch-custom', adminAuth, async (req, res) => {
 
     let sentCount = 0;
     let failedCount = 0;
-    for (const user of recipients) {
+    await runConcurrent(recipients, async (user) => {
+      if (!user.email) {
+        failedCount++;
+        if (io) {
+          io.emit('MAIL_PROGRESS', {
+            current: sentCount + failedCount,
+            total: recipients.length,
+            message: `Dispatching custom institutional communication...`
+          });
+        }
+        return;
+      }
       try {
         // Try to find a claim for variables, else use User defaults
         const claim = fyId ? await Claim.findOne({ email: user.email, fyId, archived: { $ne: true } }) : null;
@@ -427,7 +499,15 @@ router.post('/dispatch-custom', adminAuth, async (req, res) => {
         console.error(`Failed to send email to ${user.email}:`, e);
         failedCount++;
       }
-    }
+
+      if (io) {
+        io.emit('MAIL_PROGRESS', { 
+            current: sentCount + failedCount, 
+            total: recipients.length, 
+            message: `Dispatching custom institutional communication...` 
+        });
+      }
+    });
 
     res.json({ message: `Dispatch Complete: ${sentCount} sent, ${failedCount} failed.` });
   } catch (err) {
